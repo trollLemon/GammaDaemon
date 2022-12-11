@@ -1,0 +1,19 @@
+GAMMA_DAEMON:
+    MAIN:
+       
+        //find where xrandr is
+
+        fn findBatteries returns iter of batteries
+        panic and exit if no batteries are found
+        
+        //determine main battery
+
+        //loop
+
+        MAKESHIFT EVENT LISTENER:
+        //Every 5 seconds
+        fn checkBatteryStatus: returns 
+                
+        fn adjustXranr: returns     
+
+
