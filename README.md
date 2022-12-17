@@ -31,3 +31,4 @@ Any contributions are welcome. Just make a pull request with the changes you wan
 - Smooth transition between gamma settings
 - Wayland Support
 - Systemd service file
+- Configuration file 
