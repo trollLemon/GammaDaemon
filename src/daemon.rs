@@ -42,7 +42,7 @@ pub fn run(display: &String) ->Result<(), battery::Error> {
     loop {                
             manager.refresh(&mut battery).unwrap(); 
             let status : BatteryStatus = get_battery_status(&mut battery);
-            change_brightness(&display_name, determine_brightness(&status)).expect("Failed to execute xrandr");
+            change_brightness(&display_name, determine_brightness(&status));
             
             thread::sleep(sleep);
         }
@@ -100,15 +100,20 @@ fn get_battery_status(battery: &mut Battery)-> BatteryStatus {
 
 //runs xrandr on the system to change screen brighness. Takes in a reference to a string for the
 //display name, and a f32 for the gamma value.
-fn change_brightness(display_name: &String, gamma: f32)  -> Result<std::process::Output, std::io::Error>  {
+fn change_brightness(display_name: &String, gamma: f32){
 
     let gamma = gamma.to_string();//need to pass as a string
 
-        Command::new("xrandr")
+        match Command::new("xrandr") 
             .arg("--output")
             .arg(display_name)
             .arg("--brightness")
             .arg(gamma)
-            .output()
+            .output(){
+                Err(e)=>{
+                    eprintln!("failed to run xrandr: {}",e)
+                },
+                 _=>{},
+            };
+            
 }
-
