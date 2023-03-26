@@ -12,4 +12,4 @@ codegen-units = 1
 
 [dependencies]
 battery = "0.7.8"
-xrandr = "0.1.1"
+bulbb = "0.0.3"

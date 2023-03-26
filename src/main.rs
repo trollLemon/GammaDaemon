@@ -1,25 +1,18 @@
-pub(crate) use xrandr::{Monitor, XHandle};
 
 mod daemon;
-
+use bulbb::monitor::MonitorDevice;
+use battery::Error;
 fn main() {
-    //might move the following code to another function
 
-    let mut main_display: Option<&Monitor> = None;
+    //find monitor device 
+    let monitors = MonitorDevice::get_all_monitor_devices().unwrap();
+    
+    //get a ref to the first monitor in the list of monitors
+    let main_Monitor : &MonitorDevice = &monitors[0];
 
-    //get a list of the displays on the system
-    let monitors = XHandle::open().unwrap().monitors().unwrap();
+     let mut process: daemon::Daemon = daemon::Daemon::new(main_Monitor);
+    
+      process.run(); 
+     
 
-    //determine main display
-    for i in &monitors {
-        if i.is_primary {
-            main_display = Some(i);
-        }
-        break; //dont need to look anymore at this point
-    }
-
-    match main_display {
-        Some(disp) => daemon::run(&disp.name).expect("Error with Daemon"),
-        None => eprintln!("Could not find a display!"),
-    }
 }
