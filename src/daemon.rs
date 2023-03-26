@@ -41,8 +41,7 @@ fn status_changed(&'a self, old: battery::State, new: battery::State) -> bool {
 
 
 fn change_brightness( &'a self, gamma: u32) -> Result<(),bulbb::error::Error> {
-
-Ok(())
+    self.device.set_brightness(gamma)
 }
 
 
@@ -68,8 +67,10 @@ pub fn run(&'a mut self) -> battery::Error {
   loop {
       thread::sleep(sleep_duration);
       match self.perform_screen_change() {
-        
-          _=>{},
+          Ok(_) => {
+          
+              println!("Changed gamma");
+          }, 
           Err(e) => {
             return e;
           }
