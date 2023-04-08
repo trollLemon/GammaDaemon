@@ -1,7 +1,6 @@
 
 use std::fs;
 use std::io;
-
 pub struct ReadFile;
 
 
