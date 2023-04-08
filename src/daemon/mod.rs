@@ -2,6 +2,9 @@ use bulbb::monitor::MonitorDevice;
 use std::thread;
 use std::time::Duration;
 use battery::State;
+use std::env;
+use serde::Deserialize;
+use std::fs;
 
 mod read_file;
 mod file_paths;
@@ -18,23 +21,41 @@ pub struct Daemon<'a> {
 // and AC charger.
 //
 // We'll use this to check if the battery status changed or if the AC is plugged in
-struct BatteryInfo {
+struct BatteryInfo{
   old_status: State,
   new_status: State, 
   old_ac_status: char,
   new_ac_status: char,
+  gamma_values : Config,
+
+}
+
+#[derive(Deserialize)]
+struct Config {
+  full         : u32,
+  charging     : u32,
+  discharching : u32,
+  unknown      : u32,
+  ac_in        : u32,
 
 }
 
 
-impl BatteryInfo  {
+impl  BatteryInfo {
 
 
 // Constructor for the Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
 // These will be updated during the Daemons run time
-pub fn new ()-> Self{ 
-Self {old_status: State::Unknown, new_status: State::Unknown, old_ac_status: '0', new_ac_status: '0'  }
+pub fn new ()-> Self{
+let config_env: String = env::var("USER").expect("ENV Var not set");
+let config_file = "/home/".to_owned() + &config_env + "/.config/GammaDaemon/conf.toml";    
+let contents = fs::read_to_string(config_file).expect("No Valid Config Found"); 
+
+let gamma_values: Config = toml::from_str(&contents).expect("Error Reading Config File");
+
+
+Self {old_status: State::Unknown, new_status: State::Unknown, old_ac_status: '0', new_ac_status: '0' , gamma_values: gamma_values  }
 
 }
 
@@ -67,19 +88,21 @@ impl<'a> Daemon<'a> {
  *
  * */
 fn calc_new_brightness( &'a self, state: &battery::State, info: &BatteryInfo) -> u32 {
+    
+    let config = &info.gamma_values;
 
     let gamma = match state {
-       State::Full => {128},
+       State::Full => {config.full},
        State::__Nonexhaustive=> {128},
-       State::Charging => {200},
-       State::Discharging => {100},
+       State::Charging => {config.charging},
+       State::Discharging => {config.discharching},
        State::Empty=> {10},
        State::Unknown => {
 
            if info.new_ac_status == '1' {
-               return  200;
+               return  config.ac_in;
            } 
-           return 100;
+           return config.unknown;
 
        },
     };
