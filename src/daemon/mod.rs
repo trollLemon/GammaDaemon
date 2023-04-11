@@ -2,12 +2,14 @@ use bulbb::monitor::MonitorDevice;
 use std::thread;
 use std::time::Duration;
 use battery::State;
-use std::env;
-use serde::Deserialize;
-use std::fs;
+
 
 mod read_file;
 mod file_paths;
+mod config;
+
+ use crate::daemon::config::Config;
+
 
 
 // Daemon struct with the MonitorDevice. 
@@ -30,30 +32,13 @@ struct BatteryInfo{
 
 }
 
-#[derive(Deserialize)]
-struct Config {
-  full         : u32,
-  charging     : u32,
-  discharching : u32,
-  unknown      : u32,
-  ac_in        : u32,
-
-}
-
-
 impl  BatteryInfo {
 
 
 // Constructor for the Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
 // These will be updated during the Daemons run time
-pub fn new ()-> Self{
-let config_env: String = env::var("USER").expect("ENV Var not set");
-let config_file = "/home/".to_owned() + &config_env + "/.config/GammaDaemon/conf.toml";    
-let contents = fs::read_to_string(config_file).expect("No Valid Config Found"); 
-
-let gamma_values: Config = toml::from_str(&contents).expect("Error Reading Config File");
-
+pub fn new (gamma_values : Config)-> Self{
 
 Self {old_status: State::Unknown, new_status: State::Unknown, old_ac_status: '0', new_ac_status: '0' , gamma_values: gamma_values  }
 
@@ -159,10 +144,10 @@ pub fn run(&'a mut self) -> Result< (), battery::Error> {
                                                                     // notebook
         let  old_status = battery.state();   // Get the state of the battery before the program
                                                // loop
-          
-        let mut  battery_info = BatteryInfo::new(); //make a battery info struct with our battery
+        let config : Config = config::load_config();  
+        let mut  battery_info = BatteryInfo::new(config); //make a battery info struct with our battery
                                                     //data
-        let  old_ac_status : String = read_file::ReadFile::get_contents(file_paths::AC_STATUS_FILE).unwrap();//Read from the AC status file on Linux
+        let  old_ac_status : String = read_file::get_contents(file_paths::AC_STATUS_FILE).unwrap();//Read from the AC status file on Linux
         battery_info.old_status = old_status; 
         battery_info.old_ac_status= old_ac_status.chars().next().unwrap_or('0');// Set the old ac
                                                                                 // status. If there
@@ -172,7 +157,7 @@ pub fn run(&'a mut self) -> Result< (), battery::Error> {
                                                                                 // 0 or 'unplugged'
 
         loop {
-           let new_ac_status : String = read_file::ReadFile::get_contents(file_paths::AC_STATUS_FILE).unwrap(); // Get updated AC status
+           let new_ac_status : String = read_file::get_contents(file_paths::AC_STATUS_FILE).unwrap(); // Get updated AC status
            let status = battery.state();  // Get a new battery state
            
            // Put the new data into the battery info 
@@ -204,8 +189,6 @@ pub fn run(&'a mut self) -> Result< (), battery::Error> {
      
             let old_status = info.old_status;
             let status = info.new_status;
-            dbg!(&old_status);
-            dbg!(&status);
           if self.status_changed(&old_status, &status) {
 
           let gamma: u32 = self.calc_new_brightness(&status, info);
