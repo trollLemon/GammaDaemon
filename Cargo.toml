@@ -6,9 +6,11 @@ edition = "2021"
 
 
 [profile.release]
-opt-level = "s"
+opt-level = "z"
+strip = true
 lto = true
-codegen-units = 1 
+codegen-units = 1
+
 
 [dependencies]
 battery = "0.7.8"
