@@ -27,4 +27,4 @@ Any contributions are welcome. Just make a pull request with the changes you wan
 ## Todos
 - Smooth transition between gamma settings
 - Systemd service file
-- Configuration file 
+
