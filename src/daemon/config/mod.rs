@@ -37,7 +37,6 @@ pub fn load_config() ->Config {
     
     const DEFAULT: Config = Config {full: 225, charging: 255, discharching: 155, unknown: 155, ac_in:225};
 
-    let gamma_values;
     let env: String = match  env::var("USER") {
     Ok(s) => {s},
     Err(_) => {
@@ -49,7 +48,7 @@ pub fn load_config() ->Config {
 
     let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
     let contents = fs::read_to_string(config_file).unwrap_or("full = 255\ncharging = 255\ndischarching = 155\nunknown = 200\nac_in = 255".to_string());
-    gamma_values = toml::from_str(&contents).unwrap_or( DEFAULT);
+    let gamma_values = toml::from_str(&contents).unwrap_or( DEFAULT);
 
     gamma_values
 }
