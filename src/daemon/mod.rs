@@ -106,11 +106,11 @@ fn status_changed( old: &battery::State, new: &battery::State) -> bool {
  old==new
 }
 
-// Performs the gamma change on the MonitorDevice.
-// Returns a result containing with a () success type, and a bulbb::error if there is an error
-// changing the gamma on the hardware.
-// A gamma value must be passed into the function
-//
+/* Performs the gamma change on the MonitorDevice.
+ * Returns a result containing with a () success type, and a bulbb::error if there is an error
+ * changing the gamma on the hardware.
+ * A gamma value must be passed into the function
+ */
 fn change_gamma( device : &MonitorDevice, gamma: u32) -> Result<(),bulbb::error::Error> {
     device.set_brightness(gamma)
 }
