@@ -1,5 +1,7 @@
-/*  Contains utility function to read the config file for gamma values
- *  
+/*  Contains utility function to read the config file for gamma values.
+ *  We'll deserialize a toml config file in the users .config directory.
+ *
+ *  If the config file is absent, we'll supply a default config as a String
  *  
  * */
 
@@ -7,6 +9,9 @@ use serde::Deserialize;
 use std::fs;
 use std::env;
 
+
+// Config struct
+// all values are public so we can access them with the member access operator
 #[derive(Deserialize)]
 pub struct Config {
     pub full:
@@ -21,8 +26,11 @@ pub struct Config {
 
 }
 
-pub fn
-load_config()
+/* Returns a config struct with the user config values
+ * If there is no config file, a default config is supplied to serde *
+ *
+ * */
+pub fn load_config()
     ->Config {
     let config_env: String = env::var("USER").expect("ENV Var not set");
     let config_file =
