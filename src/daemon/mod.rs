@@ -78,7 +78,7 @@ fn calc_new_brightness( state: &battery::State, info: &BatteryInfo) -> u32 {
 
 
     // calculate gamma based on the battery state
-    let gamma = match state {
+      match state {
        State::Full => {config.full},
        State::__Nonexhaustive=> {128},// not implemented in the battery crate yet, we'll ingore it
        State::Charging => {config.charging},
@@ -92,9 +92,8 @@ fn calc_new_brightness( state: &battery::State, info: &BatteryInfo) -> u32 {
                 }
             return config.unknown;
             },
-        };
+        }
 
-gamma
 }
 
 /* Returns a bool showing if the battery has changed states.
@@ -159,16 +158,13 @@ pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
 
             // Change gamma
             let process = perform_screen_change(device,&battery_info)
-                .and_then(|()| { 
+                .map(|()| { 
                 // Update variables to current data
                 // we should only do this if we successfully change the screen gamma,
-                // hence the and_then() closure
                     update(&mut battery_info);
                     manager.refresh(&mut battery)
-              }).and_then(|()| {
-                    thread::sleep(sleep_duration);
-                    Ok(())
               });
+            thread::sleep(sleep_duration);  
 
             match process {
                 Ok(_) =>{},
