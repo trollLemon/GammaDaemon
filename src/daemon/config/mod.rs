@@ -27,8 +27,7 @@ load_config()
     let config_env: String = env::var("USER").expect("ENV Var not set");
     let config_file =
         "/home/".to_owned() + &config_env + "/.config/GammaDaemon/conf.toml";
-    let contents =
-        fs::read_to_string(config_file).expect("No Valid Config Found");
+    let contents = fs::read_to_string(config_file).unwrap_or("full = 255\ncharging = 255\ndischarching = 155\nunknown = 200\nac_in = 255".to_string());
 
     let gamma_values:
         Config = toml::from_str(&contents).expect("Error Reading Config File");
