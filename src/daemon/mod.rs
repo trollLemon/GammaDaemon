@@ -122,7 +122,7 @@ fn change_gamma( device : &MonitorDevice, gamma: u32) -> Result<(),bulbb::error:
  * This funcion requires a reference to a laptop monitor
  */
 pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
-  let delay: u64 = 0;// check for changes every second
+  let delay: u64 = 1;// check for changes every second
   let sleep_duration = Duration::from_secs(delay);// Duration for the delay
 
         // Set up required variables
@@ -196,4 +196,7 @@ fn perform_screen_change (device : &MonitorDevice, info: &BatteryInfo) -> Result
       
     Ok(())
 }
- 
+
+
+
+    
