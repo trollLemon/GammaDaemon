@@ -72,27 +72,23 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
  *
  *
  * */
-fn calc_new_brightness( state: &battery::State, info: &BatteryInfo) -> u32 {
+ fn calc_new_brightness( state: &battery::State, info: &BatteryInfo) -> u32 {
     
     let config = &info.gamma_values; // user config values
 
 
     // calculate gamma based on the battery state
-      match state {
-       State::Full => {config.full},
-       State::__Nonexhaustive=> {128},// not implemented in the battery crate yet, we'll ingore it
-       State::Charging => {config.charging},
-       State::Discharging => {config.discharching},
-       State::Empty=> {10}, 
-       State::Unknown => {
-           // if the battery state is unknown but the ac is plugged in
-           // '1' means its plugged in, and '0' means it isn't
-           if info.new_ac_status == '1' {
-               return  config.ac_in;
-                }
-            return config.unknown;
-            },
+      match (state, info.new_ac_status)  {
+          (State::Full,_) => {config.full},
+          (State::__Nonexhaustive, _)=> {128},// not implemented in the battery crate yet, we'll ignore it
+          (State::Charging,_) => {config.charging},
+          (State::Discharging,_) => {config.discharching},
+          (State::Empty,_)=> {10}, 
+          (State::Unknown,'1') => { config.ac_in},
+          (State::Unknown, _) => {config.discharching}
         }
+        
+    
 
 }
 
@@ -198,5 +194,13 @@ fn perform_screen_change (device : &MonitorDevice, info: &BatteryInfo) -> Result
 }
 
 
+#[cfg(test)]
+mod tests{
 
+
+
+
+
+
+}
     
