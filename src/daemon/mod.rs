@@ -196,8 +196,73 @@ fn perform_screen_change (device : &MonitorDevice, info: &BatteryInfo) -> Result
 
 #[cfg(test)]
 mod tests{
+use super::calc_new_brightness;
+use battery::State;
+use super::BatteryInfo;
+use crate::daemon::config::Config;
 
 
+const GAMMA_VALUES: Config = Config  {full:200, charging:200, discharching:155,unknown:155, ac_in:200}; 
+
+const TEST_INFO : BatteryInfo = BatteryInfo {old_status: State::Unknown, new_status: State::Unknown, old_ac_status:'0', new_ac_status:'0', gamma_values:GAMMA_VALUES};
+
+
+
+
+#[test]
+fn test_new_gamma_charging(){
+
+
+
+    let gamma = calc_new_brightness(&State::Charging, &TEST_INFO);
+    
+    assert_eq!(gamma, 200);
+
+}
+
+
+
+
+#[test]
+fn test_new_gamma_disharging(){
+
+
+
+    let gamma = calc_new_brightness(&State::Discharging, &TEST_INFO);
+    
+    assert_eq!(gamma, 155);
+}
+
+
+
+#[test]
+fn test_new_gamma_unknown_no_ac(){
+
+
+
+    let gamma = calc_new_brightness(&State::Unknown, &TEST_INFO);
+    
+    assert_eq!(gamma, 155);
+
+
+}
+
+
+
+
+#[test]
+fn test_new_gamma_unknown_ac(){
+
+let test_info : BatteryInfo = BatteryInfo {old_status: State::Unknown, new_status: State::Unknown, old_ac_status:'0', new_ac_status:'1', gamma_values:GAMMA_VALUES};
+
+
+    let gamma = calc_new_brightness(&State::Unknown, &test_info);
+    
+    assert_eq!(gamma, 200);
+
+
+
+}
 
 
 
