@@ -5,7 +5,7 @@ Auto adjusts screen gamma based on notebook battery life for Linux systems.
 GammaDaemon *should* work with any Linux laptop.
 
 ### Devices Tested
-- ThinkPad E15 Gen3 on ArchLinux: 
+- ThinkPad E15 Gen3 with ArchLinux: 
     - AC detection: Working
     - Screen brightness change: Working
 
