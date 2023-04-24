@@ -81,10 +81,10 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
           (State::Full,_) => {config.full},
           (State::__Nonexhaustive, _)=> {128},// not implemented in the battery crate yet, we'll ignore it
           (State::Charging,_) => {config.charging},
-          (State::Discharging,_) => {config.discharching},
+          (State::Discharging,_) => {config.discharging},
           (State::Empty,_)=> {10}, 
           (State::Unknown,'1') => { config.ac_in},
-          (State::Unknown, _) => {config.discharching}
+          (State::Unknown, _) => {config.discharging}
         }
         
     
@@ -202,7 +202,7 @@ use super::BatteryInfo;
 use crate::daemon::config::Config;
 
 
-const GAMMA_VALUES: Config = Config  {full:200, charging:200, discharching:155,unknown:155, ac_in:200}; 
+const GAMMA_VALUES: Config = Config  {full:200, charging:200, discharging:155,unknown:155, ac_in:200}; 
 
 const TEST_INFO : BatteryInfo = BatteryInfo {old_status: State::Unknown, new_status: State::Unknown, old_ac_status:'0', new_ac_status:'0', gamma_values:GAMMA_VALUES};
 
