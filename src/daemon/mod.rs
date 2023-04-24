@@ -51,7 +51,6 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
                 gamma_values
         }
     }
-
     // updates old status variables so we can compare them in the next iteration of the program loop
     // Assumes new_battery_info() has been called by the client code.
     fn update(info: &mut BatteryInfo) {
@@ -153,22 +152,23 @@ pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
                                                       .unwrap_or('0');
 
             // Change gamma
-            let process = perform_screen_change(device,&battery_info)
-                .map(|()| { 
+            match perform_screen_change(device,&battery_info) { 
+             
                 // Update variables to current data
                 // we should only do this if we successfully change the screen gamma,
+               Ok(_)=>{     
                     update(&mut battery_info);
-                    manager.refresh(&mut battery)
-              });
+                    manager.refresh(&mut battery)?;   
+                },
+                //If there is an error changing the gamma, print an error
+                Err(e) => {
+                    println!("Error changing gamma: {}", e);
+                }
+            };
             thread::sleep(sleep_duration);  
 
-            match process {
-                Ok(_) =>{},
-                Err(e)=>{
-            println!("Error during gamma change:\n {}",e);
-              },
 
-            }
+            
         }
     }
 
@@ -196,8 +196,73 @@ fn perform_screen_change (device : &MonitorDevice, info: &BatteryInfo) -> Result
 
 #[cfg(test)]
 mod tests{
+use super::calc_new_brightness;
+use battery::State;
+use super::BatteryInfo;
+use crate::daemon::config::Config;
 
 
+const GAMMA_VALUES: Config = Config  {full:200, charging:200, discharching:155,unknown:155, ac_in:200}; 
+
+const TEST_INFO : BatteryInfo = BatteryInfo {old_status: State::Unknown, new_status: State::Unknown, old_ac_status:'0', new_ac_status:'0', gamma_values:GAMMA_VALUES};
+
+
+
+
+#[test]
+fn test_new_gamma_charging(){
+
+
+
+    let gamma = calc_new_brightness(&State::Charging, &TEST_INFO);
+    
+    assert_eq!(gamma, 200);
+
+}
+
+
+
+
+#[test]
+fn test_new_gamma_disharging(){
+
+
+
+    let gamma = calc_new_brightness(&State::Discharging, &TEST_INFO);
+    
+    assert_eq!(gamma, 155);
+}
+
+
+
+#[test]
+fn test_new_gamma_unknown_no_ac(){
+
+
+
+    let gamma = calc_new_brightness(&State::Unknown, &TEST_INFO);
+    
+    assert_eq!(gamma, 155);
+
+
+}
+
+
+
+
+#[test]
+fn test_new_gamma_unknown_ac(){
+
+let test_info : BatteryInfo = BatteryInfo {old_status: State::Unknown, new_status: State::Unknown, old_ac_status:'0', new_ac_status:'1', gamma_values:GAMMA_VALUES};
+
+
+    let gamma = calc_new_brightness(&State::Unknown, &test_info);
+    
+    assert_eq!(gamma, 200);
+
+
+
+}
 
 
 
