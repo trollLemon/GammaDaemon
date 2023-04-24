@@ -16,15 +16,32 @@ This should work with any Linux laptop.
 
 ## Installation
 
-First, compile the project:
+### Cargo
+Run either of the following:
 ```
-cargo build
+cargo install gamma_daemon
+```
+
+```
+cargo install --path ./
+```
+The above method should be run in the root folder.
+
+### Without Cargo (Custom install location)
+
+First, run 
+```
+cargo build --release
+```
+
+Then copy the binary to where you want to put it; For example,
+in the /usr/bin/:
+
+```
+sudo cp target/release/gamma_daemon /usr/bin/
 ```
 
 ## Contributing
 Any contributions are welcome. Just make a pull request with the changes you want to add. If you tested this software on a device not listed in the Compatibility section, add the device to the *Devices Tested* list. 
 
-## Todos
-- Smooth transition between gamma settings
-- Systemd service file
 
