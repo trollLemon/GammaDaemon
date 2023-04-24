@@ -41,7 +41,7 @@ sudo cp target/release/gamma_daemon /usr/bin/
 ## Configuration
 GammaDaemon will look in $USER/.config/GammaDaemon/conf.toml for gamma configurations. If it cannot find this file, it will use a default configuration.
 Here is an example config:
-```
+```toml
 full = 255
 charging = 255
 discharging = 155
