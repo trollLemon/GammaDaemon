@@ -51,7 +51,6 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
                 gamma_values
         }
     }
-
     // updates old status variables so we can compare them in the next iteration of the program loop
     // Assumes new_battery_info() has been called by the client code.
     fn update(info: &mut BatteryInfo) {
@@ -153,22 +152,23 @@ pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
                                                       .unwrap_or('0');
 
             // Change gamma
-            let process = perform_screen_change(device,&battery_info)
-                .map(|()| { 
+            match perform_screen_change(device,&battery_info) { 
+             
                 // Update variables to current data
                 // we should only do this if we successfully change the screen gamma,
+               Ok(_)=>{     
                     update(&mut battery_info);
-                    manager.refresh(&mut battery)
-              });
+                    manager.refresh(&mut battery)?;   
+                },
+                //If there is an error changing the gamma, print an error
+                Err(e) => {
+                    println!("Error changing gamma: {}", e);
+                }
+            };
             thread::sleep(sleep_duration);  
 
-            match process {
-                Ok(_) =>{},
-                Err(e)=>{
-            println!("Error during gamma change:\n {}",e);
-              },
 
-            }
+            
         }
     }
 
