@@ -38,8 +38,17 @@ in the /usr/bin/:
 sudo cp target/release/gamma_daemon /usr/bin/
 ```
 
+## Udev Rules
+To run GammaDaemon without running as root, create a udev rule that will allow users in a certain group to read and write 
+to */sys/class/backlight/(backlight)/brightness*. For example, udev rules for users in the video group listed in the documentation for bulbb:
+```
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+```
+For more information, see the [bulbb documentation](https://docs.rs/bulbb/latest/bulbb/monitor/struct.MonitorDevice.html#method.set_brightness).
+
 ## Configuration
-GammaDaemon will look in $USER/.config/GammaDaemon/conf.toml for gamma configurations. If it cannot find this file, it will use a default configuration.
+GammaDaemon will look in $USER/.config/GammaDaemon/conf.toml for gamma configurations. If GammaDaemon cannot find this file, it will use a default configuration.
 Here is an example config:
 ```toml
 full = 255
