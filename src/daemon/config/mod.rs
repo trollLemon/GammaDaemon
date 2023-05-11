@@ -44,9 +44,8 @@ pub fn load_config() -> Config {
     let contents = fs::read_to_string(config_file).unwrap_or(
         "full = 255\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
     );
-    let gamma_values = toml::from_str(&contents).unwrap_or(DEFAULT);
-
-    gamma_values
+    
+    toml::from_str(&contents).unwrap_or(DEFAULT)
 }
 
 #[cfg(test)]
