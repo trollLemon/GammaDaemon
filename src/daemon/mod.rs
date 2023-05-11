@@ -63,12 +63,8 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
  *  
  *  This function requires  reference to the battery's state, and a reference to a battery info struct
  *  
- *  Note: If the battery state is unknown, the AC may still be plugged in. This is the case for my
- *  Lenovo Thinkpad.
- *
- *  If this is the case, and the AC is plugged in, the screen brightness will be the same as if the
- *  laptop was Charging
- *
+ *  Depending on the state of the battery and the AC, this function will set the gamma to the matching value mapped to the state in 
+ *  the config file 
  *
  * */
  fn calc_new_brightness( state: &battery::State, info: &BatteryInfo) -> u32 {
