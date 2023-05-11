@@ -12,7 +12,8 @@ use bulbb::monitor::MonitorDevice;
 use std::thread;
 use std::time::Duration;
 use battery::State;
-
+use std::fs::File;
+use daemonize::{Daemonize};
 mod read_file;
 mod config;
 
@@ -93,7 +94,7 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
  * This function requires references to an old battery state and a new one
  */
 fn status_changed( old: &battery::State, new: &battery::State) -> bool {
- old==new
+ old!=new
 }
 
 /* Performs the gamma change on the MonitorDevice.
@@ -106,6 +107,32 @@ fn change_gamma( device : &MonitorDevice, gamma: u32) -> Result<(),bulbb::error:
 }
 
 
+
+
+
+fn daemonize() {
+
+    let stdout = File::create("/tmp/gamma_daemon.out").unwrap();
+    let stderr = File::create("/tmp/gamma_daemon.err").unwrap();
+
+    let daemonize = Daemonize::new()
+        .pid_file("/tmp/gamma_daemon.pid") // Every method except `new` and `start`
+        .working_directory("/tmp") // for default behaviour.
+        .group("video") // Group name     
+        .stdout(stdout)  // Redirect stdout to `/tmp/daemon.out`.
+        .stderr(stderr)  // Redirect stderr to `/tmp/daemon.err`.
+        .privileged_action(|| "Executed before drop privileges");
+
+        match daemonize.start() {
+        Ok(_) => println!("gamma_daemon started"),
+        Err(e) => eprintln!("{}", e),
+
+        }
+
+
+}
+
+
 /* Run the Daemon.
  * Returns a result with a () success type, and a battery::Error if there is any issue reading from
  * the notebook battery
@@ -113,8 +140,11 @@ fn change_gamma( device : &MonitorDevice, gamma: u32) -> Result<(),bulbb::error:
  * This funcion requires a reference to a laptop monitor
  */
 pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
-  let delay: u64 = 1;// check for changes every second
-  let sleep_duration = Duration::from_secs(delay);// Duration for the delay
+       
+
+
+        let delay: u64 = 1;// check for changes every second
+        let sleep_duration = Duration::from_secs(delay);// Duration for the delay
 
         // Set up required variables
         let manager = battery::Manager::new()?;
@@ -125,6 +155,7 @@ pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
 
         let  old_ac_status : String = read_file::get_contents(AC_STATUS_FILE).unwrap();//Read from the AC status file on Linux
 
+        daemonize();
         battery_info.old_status = old_status; 
        
 
@@ -180,8 +211,10 @@ fn perform_screen_change (device : &MonitorDevice, info: &BatteryInfo) -> Result
     if status_changed(&old_status, &status) {
         let gamma: u32 = calc_new_brightness(&status, info);
         match change_gamma(device,gamma) {
-        Ok(_) => {}, Err(e) => {
-            println !("Error changing gamma  {}", e);
+        Ok(_) => {
+            println!("Changed Gamma to {}" , gamma);
+        }, Err(e) => {
+            eprintln !("Error changing gamma  {}", e);
             },
          }
      }
