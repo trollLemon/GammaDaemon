@@ -32,7 +32,7 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
   new_status: State, 
   old_ac_status: char,
   new_ac_status: char,
-  gamma_values : Config,
+  gamma_values : Box<Config>,
 
 }
 
@@ -49,7 +49,7 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online";//this is t
                 '0',
                 new_ac_status:
                 '0',
-                gamma_values
+                gamma_values: Box::new(gamma_values),
         }
     }
     // updates old status variables so we can compare them in the next iteration of the program loop
@@ -137,7 +137,7 @@ fn daemonize() {
  * Returns a result with a () success type, and a battery::Error if there is any issue reading from
  * the notebook battery
  *
- * This funcion requires a reference to a laptop monitor
+ * This function requires a reference to a laptop monitor
  */
 pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
        
@@ -151,7 +151,7 @@ pub fn run(device: &MonitorDevice) -> Result< (), battery::Error> {
         let mut battery = manager.batteries()?.next().unwrap()?;
         let old_status = battery.state();
         let config : Config = config::load_config();  
-        let mut battery_info = new_battery_info(config);
+        let mut battery_info = Box::new( new_battery_info(config));
 
         let  old_ac_status : String = read_file::get_contents(AC_STATUS_FILE).unwrap();//Read from the AC status file on Linux
 
