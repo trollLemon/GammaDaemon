@@ -142,7 +142,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
 
     let old_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); //Read from the AC status file on Linux
 
-//    daemonize();
+    daemonize();
 
     battery_info.old_status = old_status;
     // set the ac status to what is currently in the ac status file
