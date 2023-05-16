@@ -7,6 +7,7 @@
 
 use battery::State;
 use bulbb::monitor::MonitorDevice;
+use bulbb::error::Error;
 use daemonize::Daemonize;
 use std::fs::File;
 use std::thread;
@@ -82,14 +83,6 @@ fn status_changed(old: &battery::State, new: &battery::State) -> bool {
     old != new
 }
 
-/* Performs the gamma change on the MonitorDevice.
- * Returns a result containing with a () success type, and a bulbb::error if there is an error
- * changing the gamma on the hardware.
- * A gamma value must be passed into the function
- */
-fn change_gamma(device: &MonitorDevice, gamma: u32) -> Result<(), bulbb::error::Error> {
-    device.set_brightness(gamma)
-}
 
 fn daemonize() {
     let stdout = File::create("/tmp/gamma_daemon.out").unwrap();
@@ -135,20 +128,9 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     // if there is any issue reading the file, just have it be 0
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    loop {
-        let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); // Get updated AC status
-
-        let status = battery.state(); // Get a new battery state
-
-        // Put the new data into the battery info
-        battery_info.new_status = status;
-        battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
-
-        // Change gamma
-        match perform_screen_change(device, &battery_info) {
-            // Update variables to current data
-            // we should only do this if we successfully change the screen gamma,
-            Ok(_) => {
+    match perform_screen_change(&device, &battery_info, &old_status) {
+     Ok(g) => {
+                println!("Changed gamma to {}", g);
                 update(&mut battery_info);
                 manager.refresh(&mut battery)?;
             }
@@ -157,6 +139,33 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
                 println!("Error changing gamma: {}", e);
             }
         };
+
+    
+
+    loop {
+        let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); // Get updated AC status
+
+        let status = battery.state(); // Get a new battery state
+
+        // Put the new data into the battery info
+        battery_info.new_status = status;
+        battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
+        if status_changed(&old_status, &status){
+        // Change gamma
+        match perform_screen_change(device, &battery_info, &status) {
+            // Update variables to current data
+            // we should only do this if we successfully change the screen gamma,
+            Ok(g) => {
+                println!("Changed gamma to {}", g);
+                update(&mut battery_info);
+                manager.refresh(&mut battery)?;
+            }
+            //If there is an error changing the gamma, print an error
+            Err(e) => {
+                println!("Error changing gamma: {}", e);
+            }
+        };
+    }
         thread::sleep(sleep_duration);
     }
 }
@@ -164,24 +173,17 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
 /* Performs checks to determine if we need to change the screen gamma
  * Returns a Result with a success value of (), and a battery::Error if there was an error changing
  * the screen Gamma
- * This function will do nothing if the status in the BatteryInfo has not changed
  */
-fn perform_screen_change(device: &MonitorDevice, info: &BatteryInfo) -> Result<(), battery::Error> {
-    let old_status = info.old_status;
-    let status = info.new_status;
-    if status_changed(&old_status, &status) {
-        let gamma: u32 = calc_new_brightness(&status, info);
-        match change_gamma(device, gamma) {
-            Ok(_) => {
-                println!("Changed Gamma to {}", gamma);
-            }
-            Err(e) => {
-                eprintln!("Error changing gamma  {}", e);
-            }
-        }
-    }
+fn perform_screen_change(device: &MonitorDevice, info: &BatteryInfo, status: &State)-> Result<u32, Error> {
+     
+        let gamma: u32 = calc_new_brightness(status, info);
+            
+         match device.set_brightness(gamma)  {
+        Ok(_)=> Ok(gamma),
+        Err(e)=> Err(e),
 
-    Ok(())
+         }
+
 }
 
 #[cfg(test)]
