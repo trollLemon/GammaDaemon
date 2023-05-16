@@ -52,7 +52,6 @@ fn update(info: &mut BatteryInfo) {
 
     info.old_status = info.new_status;
     info.old_ac_status = info.new_ac_status;
-dbg!(&info);
 
 }
 
@@ -95,7 +94,6 @@ fn status_changed(status: &BatteryInfo) -> bool {
   let new_ac_status = status.new_ac_status;
 
 
-  dbg!(&old_status, &new_status, &old_ac_status, &new_ac_status);
 
    old_status != new_status || old_ac_status != new_ac_status
 
