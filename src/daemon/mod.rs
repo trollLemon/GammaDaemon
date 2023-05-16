@@ -24,6 +24,7 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online"; //this is 
  *
  * We'll use this to check if the battery status changed or if the AC is plugged in
  */
+#[derive(Debug)]
 pub struct BatteryInfo {
     old_status: State,
     new_status: State,
@@ -47,8 +48,12 @@ fn new_battery_info(gamma_values: Config) -> BatteryInfo {
 // updates old status variables so we can compare them in the next iteration of the program loop
 // Assumes new_battery_info() has been called by the client code.
 fn update(info: &mut BatteryInfo) {
+    
+
     info.old_status = info.new_status;
     info.old_ac_status = info.new_ac_status;
+dbg!(&info);
+
 }
 
 /*  Returns a u32 for the new brightness we shall set for the MonitorDevice
@@ -79,8 +84,24 @@ fn calc_new_brightness(state: &battery::State, info: &BatteryInfo) -> u32 {
  *
  * This function requires references to an old battery state and a new one
  */
-fn status_changed(old: &battery::State, new: &battery::State) -> bool {
-    old != new
+fn status_changed(status: &BatteryInfo) -> bool {
+
+
+
+  let old_status = status.old_status;
+  let new_status = status.new_status;
+
+  let old_ac_status = status.old_ac_status;
+  let new_ac_status = status.new_ac_status;
+
+
+  dbg!(&old_status, &new_status, &old_ac_status, &new_ac_status);
+
+   old_status != new_status || old_ac_status != new_ac_status
+
+
+
+    
 }
 
 
@@ -121,9 +142,9 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
 
     let old_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); //Read from the AC status file on Linux
 
-    daemonize();
-    battery_info.old_status = old_status;
+//    daemonize();
 
+    battery_info.old_status = old_status;
     // set the ac status to what is currently in the ac status file
     // if there is any issue reading the file, just have it be 0
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
@@ -140,32 +161,37 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
             }
         };
 
-    
 
+    update(&mut battery_info);
     loop {
         let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); // Get updated AC status
 
-        let status = battery.state(); // Get a new battery state
-
+        let status = battery.state();  // Get a new battery state
+        
         // Put the new data into the battery info
         battery_info.new_status = status;
         battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
-        if status_changed(&old_status, &status){
+        
+        if status_changed(&mut battery_info){
+        
         // Change gamma
         match perform_screen_change(device, &battery_info, &status) {
             // Update variables to current data
-            // we should only do this if we successfully change the screen gamma,
             Ok(g) => {
-                println!("Changed gamma to {}", g);
-                update(&mut battery_info);
-                manager.refresh(&mut battery)?;
-            }
+                  
+                               println!("Changed gamma to {}", g);
+                }
             //If there is an error changing the gamma, print an error
             Err(e) => {
                 println!("Error changing gamma: {}", e);
             }
         };
-    }
+
+        }
+            update(&mut battery_info);
+                manager.refresh(&mut battery)?;
+        
+
         thread::sleep(sleep_duration);
     }
 }
