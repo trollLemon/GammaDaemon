@@ -155,7 +155,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     // if there is any issue reading the file, just have it be 0
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    match perform_screen_change(&device, &battery_info, &old_status) {
+    match perform_screen_change(device, &battery_info, &old_status) {
      Ok(g) => {
                 println!("Changed gamma to {}", g);
                 update(&mut battery_info);
@@ -178,14 +178,14 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
         battery_info.new_status = status;
         battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
         
-        if status_changed(&mut battery_info){
+        if status_changed(&battery_info){
         
         // Change gamma
         match perform_screen_change(device, &battery_info, &status) {
             // Update variables to current data
             Ok(g) => {
                   
-                               println!("Changed gamma to {}", g);
+                println!("Changed gamma to {}", g);
                 }
             //If there is an error changing the gamma, print an error
             Err(e) => {

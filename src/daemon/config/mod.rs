@@ -54,8 +54,8 @@ pub fn load_config() -> Config {
         
         Ok(conf)=> conf,
         Err(e)=> {
-        eprintln!("Error in config file:\n {} \n gamma_daemon will use the default config", e);
-        return DEFAULT;
+            eprintln!("Error in config file:\n {} \n gamma_daemon will use the default config", e);
+            DEFAULT
         }
 
     }
