@@ -33,12 +33,24 @@ pub fn load_config() -> Config {
         Err(_) => "NAN".to_string(),
     };
 
+
+      const DEFAULT: Config = Config {
+        full: 225,
+        low: 100,
+        low_perc: 25,
+        charging: 255,
+        discharging: 155,
+        unknown: 155,
+        ac_in: 225,
+    };
+
+
     let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
     let contents = fs::read_to_string(config_file).unwrap_or(
         "full = 255\nlow=100\nlow_perc=0.20\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
     );
     
-    toml::from_str(&contents).unwrap()
+    toml::from_str(&contents).unwrap_or( DEFAULT )
 }
 
 #[cfg(test)]
