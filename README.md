@@ -32,7 +32,7 @@ cargo build --release
 ```
 
 Then copy the binary to where you want to put it; For example,
-in the /usr/bin/:
+in */usr/bin/*:
 
 ```bash
 $ cp target/release/gamma_daemon /usr/bin/
