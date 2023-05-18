@@ -1,0 +1,7 @@
+full = 240
+low = 100
+low_perc = 25 # out of 100 
+charging = 255
+discharging = 134
+unknown = 255
+ac_in = 255
