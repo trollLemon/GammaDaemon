@@ -50,7 +50,15 @@ pub fn load_config() -> Config {
         "full = 255\nlow=100\nlow_perc=0.20\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
     );
     
-    toml::from_str(&contents).unwrap_or( DEFAULT )
+    match toml::from_str(&contents) {
+        
+        Ok(conf)=> conf,
+        Err(e)=> {
+        eprintln!("Error in config file:\n {} \n gamma_daemon will use the default config", e);
+        return DEFAULT;
+        }
+
+    }
 }
 
 #[cfg(test)]
