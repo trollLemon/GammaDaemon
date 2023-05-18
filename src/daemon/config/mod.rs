@@ -14,6 +14,8 @@ use std::fs;
 #[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct Config {
     pub full: u32,
+    pub low: u32,
+    pub low_perc: u32,
     pub charging: u32,
     pub discharging: u32,
     pub unknown: u32,
@@ -25,15 +27,6 @@ pub struct Config {
  *
  * */
 pub fn load_config() -> Config {
-    //default config
-
-    const DEFAULT: Config = Config {
-        full: 225,
-        charging: 255,
-        discharging: 155,
-        unknown: 155,
-        ac_in: 225,
-    };
 
     let env: String = match env::var("USER") {
         Ok(s) => s,
@@ -42,10 +35,10 @@ pub fn load_config() -> Config {
 
     let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
     let contents = fs::read_to_string(config_file).unwrap_or(
-        "full = 255\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
+        "full = 255\nlow=100\nlow_perc=0.20\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
     );
     
-    toml::from_str(&contents).unwrap_or(DEFAULT)
+    toml::from_str(&contents).unwrap()
 }
 
 #[cfg(test)]
@@ -59,6 +52,8 @@ mod tests {
     fn test_default() {
         const DEFAULT: Config = Config {
             full: 225,
+            low: 100,
+            low_perc: 20,
             charging: 255,
             discharging: 155,
             unknown: 155,
