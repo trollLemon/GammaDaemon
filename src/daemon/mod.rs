@@ -5,8 +5,9 @@
  *
  */
 
-use battery::State;
+use battery::{ State, Battery};
 use bulbb::monitor::MonitorDevice;
+use bulbb::error::Error;
 use daemonize::Daemonize;
 use std::fs::File;
 use std::thread;
@@ -23,7 +24,9 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online"; //this is 
  *
  * We'll use this to check if the battery status changed or if the AC is plugged in
  */
+#[derive(Debug)]
 pub struct BatteryInfo {
+    soc: f32,
     old_status: State,
     new_status: State,
     old_ac_status: char,
@@ -34,8 +37,9 @@ pub struct BatteryInfo {
 // Make a struct for our Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
 // These will be updated during the Daemons run time
-fn new_battery_info(gamma_values: Config) -> BatteryInfo {
+fn new_battery_info(gamma_values: Config, battery: &mut Battery) -> BatteryInfo {
     BatteryInfo {
+        soc: battery.state_of_charge().value, 
         old_status: State::Unknown,
         new_status: State::Unknown,
         old_ac_status: '0',
@@ -46,8 +50,11 @@ fn new_battery_info(gamma_values: Config) -> BatteryInfo {
 // updates old status variables so we can compare them in the next iteration of the program loop
 // Assumes new_battery_info() has been called by the client code.
 fn update(info: &mut BatteryInfo) {
+    
+
     info.old_status = info.new_status;
     info.old_ac_status = info.new_ac_status;
+
 }
 
 /*  Returns a u32 for the new brightness we shall set for the MonitorDevice
@@ -66,7 +73,13 @@ fn calc_new_brightness(state: &battery::State, info: &BatteryInfo) -> u32 {
         (State::Full, _) => config.full,
         (State::__Nonexhaustive, _) => 128, // not implemented in the battery crate yet, we'll ignore it
         (State::Charging, _) => config.charging,
-        (State::Discharging, _) => config.discharging,
+        (State::Discharging, _) =>  { 
+            if info.soc  <= (config.low_perc as f32)/100.0 {
+                dbg!(&info.soc, &config.low_perc);
+                return config.low; 
+            }
+            config.discharging
+        },
         (State::Empty, _) => 10,
         (State::Unknown, '1') => config.ac_in,
         (State::Unknown, _) => config.discharging,
@@ -78,18 +91,25 @@ fn calc_new_brightness(state: &battery::State, info: &BatteryInfo) -> u32 {
  *
  * This function requires references to an old battery state and a new one
  */
-fn status_changed(old: &battery::State, new: &battery::State) -> bool {
-    old != new
+fn status_changed(status: &BatteryInfo) -> bool {
+
+
+
+  let old_status = status.old_status;
+  let new_status = status.new_status;
+
+  let old_ac_status = status.old_ac_status;
+  let new_ac_status = status.new_ac_status;
+
+
+
+   old_status != new_status || old_ac_status != new_ac_status
+
+
+
+    
 }
 
-/* Performs the gamma change on the MonitorDevice.
- * Returns a result containing with a () success type, and a bulbb::error if there is an error
- * changing the gamma on the hardware.
- * A gamma value must be passed into the function
- */
-fn change_gamma(device: &MonitorDevice, gamma: u32) -> Result<(), bulbb::error::Error> {
-    device.set_brightness(gamma)
-}
 
 fn daemonize() {
     let stdout = File::create("/tmp/gamma_daemon.out").unwrap();
@@ -124,31 +144,20 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     let mut battery = manager.batteries()?.next().unwrap()?;
     let old_status = battery.state();
     let config: Config = config::load_config();
-    let mut battery_info = Box::new(new_battery_info(config));
+    let mut battery_info = Box::new(new_battery_info(config, &mut battery));
 
     let old_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); //Read from the AC status file on Linux
 
     daemonize();
-    battery_info.old_status = old_status;
 
+    battery_info.old_status = old_status;
     // set the ac status to what is currently in the ac status file
     // if there is any issue reading the file, just have it be 0
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    loop {
-        let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); // Get updated AC status
-
-        let status = battery.state(); // Get a new battery state
-
-        // Put the new data into the battery info
-        battery_info.new_status = status;
-        battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
-
-        // Change gamma
-        match perform_screen_change(device, &battery_info) {
-            // Update variables to current data
-            // we should only do this if we successfully change the screen gamma,
-            Ok(_) => {
+    match perform_screen_change(device, &battery_info, &old_status) {
+     Ok(g) => {
+                println!("Changed gamma to {}", g);
                 update(&mut battery_info);
                 manager.refresh(&mut battery)?;
             }
@@ -157,6 +166,38 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
                 println!("Error changing gamma: {}", e);
             }
         };
+
+
+    update(&mut battery_info);
+    loop {
+        let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); // Get updated AC status
+
+        let status = battery.state();  // Get a new battery state
+        
+        // Put the new data into the battery info
+        battery_info.new_status = status;
+        battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
+        
+        if status_changed(&battery_info){
+        
+        // Change gamma
+        match perform_screen_change(device, &battery_info, &status) {
+            // Update variables to current data
+            Ok(g) => {
+                  
+                println!("Changed gamma to {}", g);
+                }
+            //If there is an error changing the gamma, print an error
+            Err(e) => {
+                println!("Error changing gamma: {}", e);
+            }
+        };
+
+        }
+            update(&mut battery_info);
+                manager.refresh(&mut battery)?;
+        
+
         thread::sleep(sleep_duration);
     }
 }
@@ -164,24 +205,17 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
 /* Performs checks to determine if we need to change the screen gamma
  * Returns a Result with a success value of (), and a battery::Error if there was an error changing
  * the screen Gamma
- * This function will do nothing if the status in the BatteryInfo has not changed
  */
-fn perform_screen_change(device: &MonitorDevice, info: &BatteryInfo) -> Result<(), battery::Error> {
-    let old_status = info.old_status;
-    let status = info.new_status;
-    if status_changed(&old_status, &status) {
-        let gamma: u32 = calc_new_brightness(&status, info);
-        match change_gamma(device, gamma) {
-            Ok(_) => {
-                println!("Changed Gamma to {}", gamma);
-            }
-            Err(e) => {
-                eprintln!("Error changing gamma  {}", e);
-            }
-        }
-    }
+fn perform_screen_change(device: &MonitorDevice, info: &BatteryInfo, status: &State)-> Result<u32, Error> {
+     
+        let gamma: u32 = calc_new_brightness(status, info);
+            
+         match device.set_brightness(gamma)  {
+        Ok(_)=> Ok(gamma),
+        Err(e)=> Err(e),
 
-    Ok(())
+         }
+
 }
 
 #[cfg(test)]
@@ -195,6 +229,8 @@ mod tests {
     fn test_new_gamma_charging() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -202,6 +238,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -218,6 +256,8 @@ mod tests {
     fn test_new_gamma_disharging() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -225,6 +265,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -241,6 +283,8 @@ mod tests {
     fn test_new_gamma_unknown_no_ac() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -248,6 +292,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -261,9 +307,11 @@ mod tests {
     }
 
     #[test]
-    fn test_new_gamma_unknown_ac() {
+    fn test_new_gamma_discharging_low_soc() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 24,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -271,15 +319,17 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 0.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
-            new_ac_status: '1',
+            new_ac_status: '0',
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Unknown, &test_info);
+        let gamma = calc_new_brightness(&State::Discharging, &test_info);
 
-        assert_eq!(gamma, 200);
+        assert_eq!(gamma, 100);
     }
 }
