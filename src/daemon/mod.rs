@@ -5,7 +5,7 @@
  *
  */
 
-use battery::State;
+use battery::{ State, Battery};
 use bulbb::monitor::MonitorDevice;
 use bulbb::error::Error;
 use daemonize::Daemonize;
@@ -26,6 +26,7 @@ pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online"; //this is 
  */
 #[derive(Debug)]
 pub struct BatteryInfo {
+    soc: f32,
     old_status: State,
     new_status: State,
     old_ac_status: char,
@@ -36,8 +37,9 @@ pub struct BatteryInfo {
 // Make a struct for our Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
 // These will be updated during the Daemons run time
-fn new_battery_info(gamma_values: Config) -> BatteryInfo {
+fn new_battery_info(gamma_values: Config, battery: &mut Battery) -> BatteryInfo {
     BatteryInfo {
+        soc: battery.state_of_charge().value, 
         old_status: State::Unknown,
         new_status: State::Unknown,
         old_ac_status: '0',
@@ -71,7 +73,13 @@ fn calc_new_brightness(state: &battery::State, info: &BatteryInfo) -> u32 {
         (State::Full, _) => config.full,
         (State::__Nonexhaustive, _) => 128, // not implemented in the battery crate yet, we'll ignore it
         (State::Charging, _) => config.charging,
-        (State::Discharging, _) => config.discharging,
+        (State::Discharging, _) =>  { 
+            if info.soc  <= (config.low_perc as f32)/100.0 {
+                dbg!(&info.soc, &config.low_perc);
+                return config.low; 
+            }
+            config.discharging
+        },
         (State::Empty, _) => 10,
         (State::Unknown, '1') => config.ac_in,
         (State::Unknown, _) => config.discharging,
@@ -136,7 +144,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     let mut battery = manager.batteries()?.next().unwrap()?;
     let old_status = battery.state();
     let config: Config = config::load_config();
-    let mut battery_info = Box::new(new_battery_info(config));
+    let mut battery_info = Box::new(new_battery_info(config, &mut battery));
 
     let old_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap(); //Read from the AC status file on Linux
 
@@ -221,6 +229,8 @@ mod tests {
     fn test_new_gamma_charging() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -228,6 +238,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -244,6 +256,8 @@ mod tests {
     fn test_new_gamma_disharging() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -251,6 +265,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -267,6 +283,8 @@ mod tests {
     fn test_new_gamma_unknown_no_ac() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -274,6 +292,8 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 50.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
@@ -287,9 +307,11 @@ mod tests {
     }
 
     #[test]
-    fn test_new_gamma_unknown_ac() {
+    fn test_new_gamma_discharging_low_soc() {
         let gamma_values: Config = Config {
             full: 200,
+            low: 100,
+            low_perc: 24,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -297,15 +319,17 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
+            
+            soc: 0.0,
             old_status: State::Unknown,
             new_status: State::Unknown,
             old_ac_status: '0',
-            new_ac_status: '1',
+            new_ac_status: '0',
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Unknown, &test_info);
+        let gamma = calc_new_brightness(&State::Discharging, &test_info);
 
-        assert_eq!(gamma, 200);
+        assert_eq!(gamma, 100);
     }
 }
