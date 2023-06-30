@@ -4,7 +4,7 @@ description = "Changes screen brightness based on notebook battery life"
 license = "MIT"
 version = "0.1.0"
 edition = "2021"
-
+repository = "https://github.com/trollLemon/GammaDaemon"
 
 
 [profile.release]
