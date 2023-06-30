@@ -5,6 +5,9 @@ license = "MIT"
 version = "0.1.0"
 edition = "2021"
 repository = "https://github.com/trollLemon/GammaDaemon"
+documentation = "https://github.com/trollLemon/GammaDaemon"
+homepage = "https://github.com/trollLemon/GammaDaemon"
+readme = "README.md"
 
 
 [profile.release]
