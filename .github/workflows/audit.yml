@@ -1,0 +1,28 @@
+name: Clippy and Rustfmt
+
+on:
+  push:
+    branches:
+      - main 
+  pull_request:
+    branches:
+      - main 
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+    - name: Install Clippy
+      run: rustup component add clippy
+    - name: Install Rustfmt
+      run: rustup component add rustfmt
+    - name: Check code with Clippy
+      run: cargo clippy -- -D warnings
+    - name: Check code with Rustfmt
+      run: cargo fmt -- --check
