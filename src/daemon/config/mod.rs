@@ -27,14 +27,12 @@ pub struct Config {
  *
  * */
 pub fn load_config() -> Config {
-
     let env: String = match env::var("USER") {
         Ok(s) => s,
         Err(_) => "NAN".to_string(),
     };
 
-
-      const DEFAULT: Config = Config {
+    const DEFAULT: Config = Config {
         full: 225,
         low: 100,
         low_perc: 25,
@@ -44,20 +42,20 @@ pub fn load_config() -> Config {
         ac_in: 225,
     };
 
-
     let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
     let contents = fs::read_to_string(config_file).unwrap_or(
         "full = 255\nlow=100\nlow_perc=0.20\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
     );
-    
+
     match toml::from_str(&contents) {
-        
-        Ok(conf)=> conf,
-        Err(e)=> {
-            eprintln!("Error in config file:\n {} \n gamma_daemon will use the default config", e);
+        Ok(conf) => conf,
+        Err(e) => {
+            eprintln!(
+                "Error in config file:\n {} \n gamma_daemon will use the default config",
+                e
+            );
             DEFAULT
         }
-
     }
 }
 
