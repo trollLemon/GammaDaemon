@@ -23,20 +23,15 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install grcov
-        run: cargo install grcov
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
 
       - name: Build and Test with Coverage
         run: |
-          cargo test --no-fail-fast
+          # Run tests with coverage using tarpaulin
+          cargo tarpaulin --out Xml --exclude-files none --ignore-tests
 
-      - name: Generate lcov.info
-        run: |
-          grcov . -s . --binary-path ./target/debug/ -t lcov --ignore "/*" -o lcov.info
-
-      - name: Upload to Codecov
+      - name: Upload Code Coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
-          files: ./lcov.info
-          # Add your Codecov token as a secret in your repository
           token: ${{ secrets.CODECOV_TOKEN }}
