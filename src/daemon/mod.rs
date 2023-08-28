@@ -225,6 +225,33 @@ mod tests {
     use crate::daemon::config::Config;
     use battery::State;
 
+
+
+    #[test]
+    fn test_change(){
+
+
+        let battery_info1 = BatteryInfo {
+        soc: 75.0,
+        old_status: State::Charging,
+        new_status: State::Discharging,
+        old_ac_status: 'C',
+        new_ac_status: 'D',
+        gamma_values: Box::new(Config {
+        full: 225,
+        low: 100,
+        low_perc: 25,
+        charging: 255,
+        discharging: 155,
+        unknown: 155,
+        ac_in: 225,
+        }),
+    };
+
+    assert_eq!(true, status_changed(&battery_info1));
+    }
+
+
     #[test]
     fn test_new_gamma_charging() {
         let gamma_values: Config = Config {
