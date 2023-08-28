@@ -1,9 +1,12 @@
 name: Rust Code Coverage
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
-      - main # Customize this to your main branch name
+      - main
 
 jobs:
   coverage:
@@ -25,7 +28,6 @@ jobs:
 
       - name: Build and Test with Coverage
         run: |
-          RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort" \
           cargo test --no-fail-fast
 
       - name: Generate lcov.info
