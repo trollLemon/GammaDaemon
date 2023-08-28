@@ -1,32 +1,40 @@
-on:
-  pull_request:
-  push:
-    branches:
-      - main
+name: Rust
 
-name: Test with Code Coverage
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test
-    env:
-      PROJECT_NAME_UNDERSCORE: GammaDaemon
-      CARGO_INCREMENTAL: 0
-      RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort
-      RUSTDOCFLAGS: -Cpanic=abort
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+  build:
 
-      - name: Upload to CodeCov
-        uses: codecov/codecov-action@v3
-        with:
-          # required for private repositories:
-          # token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./lcov.info
-          fail_ci_if_error: true
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+      env:
+        CARGO_INCREMENTAL: '0'
+        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+    - name: Codecov
+      # You may pin to the exact commit or the version.
+      # uses: codecov/codecov-action@81cd2dc8148241f03f5839d295e000b8f761e378
+      uses: codecov/codecov-action@v3
+      with:
+        # Repository upload token - get it from codecov.io. Required only for private repositories
+        # token: # optional
+        # Specify whether the Codecov output should be verbose
+        verbose: true
+        fail_ci_if_error: true
