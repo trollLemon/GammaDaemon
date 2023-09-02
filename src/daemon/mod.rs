@@ -64,6 +64,21 @@ fn update(info: &mut BatteryInfo) {
     info.old_ac_status = info.new_ac_status;
 }
 
+/* Helper function to determine the gamma if the battery is discharging and/or is low.
+ *
+ * If the battery is discharging and isnt below the threshold set by the user, then
+ * the function retunrs the user's 'discharging' gamma setting. Otherwise the function returns
+ * the 'low' gamma setting.
+ *
+ * */
+fn low_gamma_or_charging(info: &BatteryInfo) -> u32 {
+    let config = &info.gamma_values;
+    if info.soc <= (config.low_perc as f32) / 100.0 {
+        return config.low;
+    }
+    config.discharging
+}
+
 /*  Returns a u32 for the new brightness we shall set for the MonitorDevice
  *
  *  This function requires  reference to the battery's state, and a reference to a battery info struct
@@ -72,24 +87,25 @@ fn update(info: &mut BatteryInfo) {
  *  the config file
  *
  * */
-fn calc_new_brightness(state: &battery::State, info: &BatteryInfo) -> u32 {
+fn calc_new_brightness(info: &BatteryInfo) -> u32 {
     let config = &info.gamma_values; // user config values
+    let state = info.new_status;
+    let plugged = if info.new_ac_status == '1' {
+        true
+    } else {
+        false
+    };
 
     // calculate gamma based on the battery state
-    match (state, info.new_ac_status) {
-        (State::Full, _) => config.full,
+    match (state, plugged) {
+        (State::Full, false) => config.full,
+        (State::Full, true) => config.ac_in,
         (State::__Nonexhaustive, _) => 128, // not implemented in the battery crate yet, we'll ignore it
         (State::Charging, _) => config.charging,
-        (State::Discharging, _) => {
-            if info.soc <= (config.low_perc as f32) / 100.0 {
-                dbg!(&info.soc, &config.low_perc);
-                return config.low;
-            }
-            config.discharging
-        }
+        (State::Discharging, _) => low_gamma_or_charging(info),
         (State::Empty, _) => 10,
-        (State::Unknown, '1') => config.ac_in,
-        (State::Unknown, _) => config.discharging,
+        (State::Unknown, true) => config.ac_in,
+        (State::Unknown, false) => low_gamma_or_charging(info),
     }
 }
 
@@ -152,7 +168,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     // if there is any issue reading the file, just have it be 0
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    match perform_screen_change(device, &battery_info, &old_status) {
+    match perform_screen_change(device, &battery_info) {
         Ok(g) => {
             println!("Changed gamma to {}", g);
             update(&mut battery_info);
@@ -176,7 +192,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
 
         if status_changed(&battery_info) {
             // Change gamma
-            match perform_screen_change(device, &battery_info, &status) {
+            match perform_screen_change(device, &battery_info) {
                 // Update variables to current data
                 Ok(g) => {
                     println!("Changed gamma to {}", g);
@@ -198,12 +214,8 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
  * Returns a Result with a success value of (), and a battery::Error if there was an error changing
  * the screen Gamma
  */
-fn perform_screen_change<T: Backlight>(
-    device: &T,
-    info: &BatteryInfo,
-    status: &State,
-) -> Result<u32, Error> {
-    let gamma: u32 = calc_new_brightness(status, info);
+fn perform_screen_change<T: Backlight>(device: &T, info: &BatteryInfo) -> Result<u32, Error> {
+    let gamma: u32 = calc_new_brightness(info);
 
     match device.change_gamma(gamma) {
         Ok(_) => Ok(gamma),
@@ -233,18 +245,16 @@ mod tests {
     }
 
     impl MockMonitorDevice {
-            fn new() -> Self {
-        MockMonitorDevice
-    }
+        fn new() -> Self {
+            MockMonitorDevice
+        }
     }
 
     #[test]
     fn test_successful_brightness_change() {
-        let status = State::Charging;
-
         let device = MockMonitorDevice::new(); // Replace with actual construction of MonitorDevice
 
-        let mut battery_info1 = BatteryInfo {
+        let battery_info1 = BatteryInfo {
             soc: 75.0,
             old_status: State::Charging,
             new_status: State::Discharging,
@@ -261,15 +271,13 @@ mod tests {
             }),
         };
 
-        let result = perform_screen_change(&device, &battery_info1, &status);
+        let result = perform_screen_change(&device, &battery_info1);
 
         assert!(result.is_ok());
     }
 
-      #[test]
-      fn test_brightness_change_failure() {
-
-     }
+    #[test]
+    fn test_brightness_change_failure() {}
 
     #[test]
     fn test_change() {
@@ -324,11 +332,107 @@ mod tests {
     }
 
     #[test]
+    fn test_new_gamma_unknown() {
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 20,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 0.5,
+            old_status: State::Unknown,
+            new_status: State::Unknown,
+            old_ac_status: '0',
+            new_ac_status: '0',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 155);
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 20,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 50.0,
+            old_status: State::Full,
+            new_status: State::Unknown,
+            old_ac_status: '1',
+            new_ac_status: '0',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 155);
+    }
+
+    #[test]
     fn test_new_gamma_charging() {
         let gamma_values: Config = Config {
             full: 200,
             low: 100,
             low_perc: 20,
+            charging: 255,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 0.5,
+            old_status: State::Unknown,
+            new_status: State::Charging,
+            old_ac_status: '0',
+            new_ac_status: '1',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 255);
+
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 20,
+            charging: 255,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 0.5,
+            old_status: State::Discharging,
+            new_status: State::Charging,
+            old_ac_status: '1',
+            new_ac_status: '1',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 255);
+    }
+    #[test]
+    fn test_new_gamma_full() {
+        let gamma_values: Config = Config {
+            full: 220,
+            low: 100,
+            low_perc: 20,
             charging: 200,
             discharging: 155,
             unknown: 155,
@@ -336,21 +440,70 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
-            soc: 50.0,
+            soc: 1.0,
             old_status: State::Unknown,
-            new_status: State::Unknown,
+            new_status: State::Full,
             old_ac_status: '0',
             new_ac_status: '0',
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Charging, &test_info);
+        let gamma = calc_new_brightness(&test_info);
 
-        assert_eq!(gamma, 200);
+        assert_eq!(gamma, 220);
+
+        let gamma_values: Config = Config {
+            full: 220,
+            low: 100,
+            low_perc: 20,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 1.0,
+            old_status: State::Discharging,
+            new_status: State::Full,
+            old_ac_status: '1',
+            new_ac_status: '0',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 220);
     }
 
     #[test]
-    fn test_new_gamma_disharging() {
+    fn test_new_gamma_low() {
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 20,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 0.2,
+            old_status: State::Unknown,
+            new_status: State::Discharging,
+            old_ac_status: '0',
+            new_ac_status: '0',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 100);
+    }
+
+    #[test]
+    fn test_new_gamma_discharging() {
         let gamma_values: Config = Config {
             full: 200,
             low: 100,
@@ -370,7 +523,7 @@ mod tests {
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Discharging, &test_info);
+        let gamma = calc_new_brightness(&test_info);
 
         assert_eq!(gamma, 155);
     }
@@ -396,7 +549,7 @@ mod tests {
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Unknown, &test_info);
+        let gamma = calc_new_brightness(&test_info);
 
         assert_eq!(gamma, 155);
     }
@@ -422,7 +575,7 @@ mod tests {
             gamma_values: Box::new(gamma_values),
         };
 
-        let gamma = calc_new_brightness(&State::Discharging, &test_info);
+        let gamma = calc_new_brightness(&test_info);
 
         assert_eq!(gamma, 100);
     }
