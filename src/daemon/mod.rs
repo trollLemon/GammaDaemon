@@ -99,7 +99,7 @@ fn calc_new_brightness(info: &BatteryInfo) -> u32 {
     // calculate gamma based on the battery state
     match (state, plugged) {
         (State::Full, false) => config.full,
-        (State::Full, true) => config.ac_in,
+        (State::Full, true) => config.full,
         (State::__Nonexhaustive, _) => 128, // not implemented in the battery crate yet, we'll ignore it
         (State::Charging, _) => config.charging,
         (State::Discharging, _) => low_gamma_or_charging(info),
@@ -467,7 +467,7 @@ mod tests {
             old_status: State::Discharging,
             new_status: State::Full,
             old_ac_status: '1',
-            new_ac_status: '0',
+            new_ac_status: '1',
             gamma_values: Box::new(gamma_values),
         };
 
@@ -555,6 +555,32 @@ mod tests {
     }
 
     #[test]
+    fn test_new_gamma_unknown_ac() {
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 20,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 50.0,
+            old_status: State::Unknown,
+            new_status: State::Unknown,
+            old_ac_status: '0',
+            new_ac_status: '1',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 200);
+    }
+
+    #[test]
     fn test_new_gamma_discharging_low_soc() {
         let gamma_values: Config = Config {
             full: 200,
@@ -578,5 +604,30 @@ mod tests {
         let gamma = calc_new_brightness(&test_info);
 
         assert_eq!(gamma, 100);
+    }
+    #[test]
+    fn test_new_gamma_empty() {
+        let gamma_values: Config = Config {
+            full: 200,
+            low: 100,
+            low_perc: 24,
+            charging: 200,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 200,
+        };
+
+        let test_info: BatteryInfo = BatteryInfo {
+            soc: 0.0,
+            old_status: State::Unknown,
+            new_status: State::Empty,
+            old_ac_status: '0',
+            new_ac_status: '0',
+            gamma_values: Box::new(gamma_values),
+        };
+
+        let gamma = calc_new_brightness(&test_info);
+
+        assert_eq!(gamma, 10);
     }
 }
