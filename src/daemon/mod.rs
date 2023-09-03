@@ -67,11 +67,11 @@ fn update(info: &mut BatteryInfo) {
 /* Helper function to determine the gamma if the battery is discharging and/or is low.
  *
  * If the battery is discharging and isnt below the threshold set by the user, then
- * the function retunrs the user's 'discharging' gamma setting. Otherwise the function returns
+ * the function returns the user's 'discharging' gamma setting. Otherwise the function returns
  * the 'low' gamma setting.
  *
  * */
-fn low_gamma_or_charging(info: &BatteryInfo) -> u32 {
+fn low_or_discharging(info: &BatteryInfo) -> u32 {
     let config = &info.gamma_values;
     if info.soc <= (config.low_perc as f32) / 100.0 {
         return config.low;
@@ -96,12 +96,12 @@ fn calc_new_brightness(info: &BatteryInfo) -> u32 {
     match (state, plugged) {
         (State::Full, false) => config.full,
         (State::Full, true) => config.full,
-        (State::__Nonexhaustive, _) => 128, // not implemented in the battery crate yet, we'll ignore it
         (State::Charging, _) => config.charging,
-        (State::Discharging, _) => low_gamma_or_charging(info),
-        (State::Empty, _) => 10,
+        (State::Discharging, _) => low_or_discharging(info),
+        (State::Empty, _) => low_or_discharging(info),
         (State::Unknown, true) => config.ac_in,
-        (State::Unknown, false) => low_gamma_or_charging(info),
+        (State::Unknown, false) => low_or_discharging(info),
+        _=> config.discharging
     }
 }
 
@@ -138,6 +138,10 @@ fn daemonize() {
     }
 }
 
+
+/* Updates important structs and sleeps the thread.
+ * This shall be called each loop during the daemons run time
+ * */
 fn loop_update(
     manager: &battery::Manager,
     battery_info: &mut BatteryInfo,
@@ -154,16 +158,14 @@ fn loop_update(
  * success or error messages to std::out or std::err based on the result of
  * perform_screen_change.
  * */
-fn try_change<T: Backlight>(device: &T, info: &BatteryInfo) -> u8 {
+fn try_change<T: Backlight>(device: &T, info: &BatteryInfo) {
     match perform_screen_change(device, &info) {
         Ok(g) => {
             println!("Changed gamma to {}", g);
-            return 0;
         }
         //If there is an error changing the gamma, print an error
         Err(e) => {
             println!("Error changing gamma: {}", e);
-            return 1;
         }
     };
 }
@@ -305,58 +307,6 @@ mod tests {
         let result = perform_screen_change(&device, &battery_info1);
 
         assert!(!result.is_ok());
-    }
-
-    #[test]
-    fn test_try_change_success() {
-        let device = MockMonitorDevice::new();
-
-        let battery_info1 = BatteryInfo {
-            soc: 0.75,
-            old_status: State::Charging,
-            new_status: State::Discharging,
-            old_ac_status: 'C',
-            new_ac_status: 'D',
-            gamma_values: Box::new(Config {
-                full: 225,
-                low: 100,
-                low_perc: 25,
-                charging: 255,
-                discharging: 155,
-                unknown: 155,
-                ac_in: 225,
-            }),
-        };
-
-        let result = try_change(&device, &battery_info1);
-
-        assert!(result == 0);
-    }
-
-    #[test]
-    fn test_try_change_failure() {
-        let device = MockMonitorDevice::new();
-
-        let battery_info1 = BatteryInfo {
-            soc: 0.75,
-            old_status: State::Charging,
-            new_status: State::Charging,
-            old_ac_status: 'C',
-            new_ac_status: 'C',
-            gamma_values: Box::new(Config {
-                full: 225,
-                low: 100,
-                low_perc: 25,
-                charging: 2355,
-                discharging: 155,
-                unknown: 155,
-                ac_in: 225,
-            }),
-        };
-
-        let result = try_change(&device, &battery_info1);
-
-        assert!(result == 1);
     }
 
     #[test]
@@ -708,6 +658,6 @@ mod tests {
 
         let gamma = calc_new_brightness(&test_info);
 
-        assert_eq!(gamma, 10);
+        assert_eq!(gamma, 100);
     }
 }
