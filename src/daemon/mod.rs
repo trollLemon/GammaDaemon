@@ -59,9 +59,10 @@ fn new_battery_info(gamma_values: Config, battery: &mut Battery) -> BatteryInfo 
 }
 // updates old status variables so we can compare them in the next iteration of the program loop
 // Assumes new_battery_info() has been called by the client code.
-fn update(info: &mut BatteryInfo) {
+fn update(info: &mut BatteryInfo, battery: &Battery) {
     info.old_status = info.new_status;
     info.old_ac_status = info.new_ac_status;
+    info.soc = battery.state_of_charge().value;
 }
 
 /* Helper function to determine the gamma if the battery is discharging and/or is low.
@@ -100,7 +101,7 @@ fn calc_new_brightness(info: &BatteryInfo) -> u32 {
         (State::Discharging, _) => low_or_discharging(info),
         (State::Empty, _) => low_or_discharging(info),
         (State::Unknown, true) => config.ac_in,
-        (State::Unknown, false) => low_or_discharging(info),
+        (State::Unknown, false) => config.discharging,
         _=> config.discharging
     }
 }
@@ -148,7 +149,7 @@ fn loop_update(
     battery: &mut Battery,
     sleep_duration: Duration,
 ) -> Result<(), battery::Error> {
-    update(battery_info);
+    update(battery_info, battery);
     manager.refresh(battery)?;
     thread::sleep(sleep_duration);
     Ok(())
@@ -199,7 +200,7 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     battery_info.old_status = old_status;
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    update(&mut battery_info);
+    update(&mut battery_info,&battery);
 
     loop {
         let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap();
