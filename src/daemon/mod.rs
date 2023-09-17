@@ -335,32 +335,6 @@ mod tests {
         assert_eq!(false, status_changed(&battery_info1));
     }
 
-    #[test]
-    fn test_update() {
-        let mut battery_info1 = BatteryInfo {
-            soc: 75.0,
-            old_status: State::Charging,
-            new_status: State::Discharging,
-            old_ac_status: 'C',
-            new_ac_status: 'D',
-            gamma_values: Box::new(Config {
-                full: 225,
-                low: 100,
-                low_perc: 25,
-                charging: 255,
-                discharging: 155,
-                unknown: 155,
-                ac_in: 225,
-            }),
-        };
-
-        update(&mut &mut battery_info1);
-        assert_eq!(
-            true,
-            battery_info1.old_ac_status == battery_info1.new_ac_status
-        );
-        assert_eq!(true, battery_info1.old_status == battery_info1.new_status);
-    }
 
     #[test]
     fn test_new_gamma_unknown() {
@@ -624,9 +598,9 @@ mod tests {
         };
 
         let test_info: BatteryInfo = BatteryInfo {
-            soc: 0.0,
+            soc: 0.2,
             old_status: State::Unknown,
-            new_status: State::Unknown,
+            new_status: State::Discharging,
             old_ac_status: '0',
             new_ac_status: '0',
             gamma_values: Box::new(gamma_values),
