@@ -176,7 +176,7 @@ fn try_change<T: Backlight>(device: &T, info: &BatteryInfo) {
  * the notebook battery
  *
  */
-pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
+pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> {
     let delay: u64 = 1; // check for changes every second
     let sleep_duration = Duration::from_secs(delay);
 
@@ -184,7 +184,9 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
         Ok(s) => s,
         Err(_) => "NAN".to_string(),
     };
-    let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
+
+    
+    let config_file = if path == "NAN" {"/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml"} else {path.to_string()};
     let config: Config = config::load_config(config_file);
 
     let manager = battery::Manager::new()?;

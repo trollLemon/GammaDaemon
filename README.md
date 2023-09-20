@@ -48,7 +48,15 @@ ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chmod g+w /sys/class/backlight
 For more information, see the [bulbb documentation](https://docs.rs/bulbb/latest/bulbb/monitor/struct.MonitorDevice.html#method.set_brightness).
 
 ## Configuration
-GammaDaemon will look in $USER/.config/GammaDaemon/conf.toml for gamma configurations. If GammaDaemon cannot find this file, it will use a default configuration.
+
+GammaDaemon is configured in a .toml file. You can specify where to find the config file in a command argument:
+```bash
+
+gamma_daemon /home/<USER>/config.toml
+
+```
+
+If no config path is provided, GammaDaemon will look in $USER/.config/GammaDaemon/conf.toml for gamma configurations. If GammaDaemon cannot find this file, it will use a default configuration.
 Here is an example config:
 ```toml
 full = 240
