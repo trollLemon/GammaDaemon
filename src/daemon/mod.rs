@@ -160,7 +160,7 @@ fn loop_update(
  * perform_screen_change.
  * */
 fn try_change<T: Backlight>(device: &T, info: &BatteryInfo) {
-    match perform_screen_change(device, &info) {
+    match perform_screen_change(device, info) {
         Ok(g) => {
             println!("Changed gamma to {}", g);
         }
@@ -175,7 +175,6 @@ fn try_change<T: Backlight>(device: &T, info: &BatteryInfo) {
  * Returns a result with a () success type, and a battery::Error if there is any issue reading from
  * the notebook battery
  *
- * This function requires a reference to a laptop monitor
  */
 pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     let delay: u64 = 1; // check for changes every second
@@ -218,9 +217,8 @@ pub fn run(device: &MonitorDevice) -> Result<(), battery::Error> {
     }
 }
 
-/* Performs checks to determine if we need to change the screen gamma
- * Returns a Result with a success value of (), and a battery::Error if there was an error changing
- * the screen Gamma
+/* Returns a Result with a success value of (), and a battery::Error if there was an error changing
+ *  the screen Gamma
  */
 fn perform_screen_change<T: Backlight>(device: &T, info: &BatteryInfo) -> Result<u32, Error> {
     let gamma: u32 = calc_new_brightness(info);
