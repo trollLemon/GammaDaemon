@@ -6,7 +6,6 @@
  * */
 
 use serde::Deserialize;
-use std::env;
 use std::fs;
 
 // Config struct
@@ -26,12 +25,7 @@ pub struct Config {
  * If there is no config file, or the ENV var is not set: a default config is supplied to serde
  *
  * */
-pub fn load_config() -> Config {
-    let env: String = match env::var("USER") {
-        Ok(s) => s,
-        Err(_) => "NAN".to_string(),
-    };
-
+pub fn load_config(path: String) -> Config {
     const DEFAULT: Config = Config {
         full: 225,
         low: 100,
@@ -42,10 +36,10 @@ pub fn load_config() -> Config {
         ac_in: 225,
     };
 
-    let config_file = "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml";
-    let contents = fs::read_to_string(config_file).unwrap_or(
-        "full = 255\nlow=100\nlow_perc=0.20\ncharging = 255\ndischarging = 155\nunknown = 200\nac_in = 255".to_string(),
-    );
+    let contents = match fs::read_to_string(path) {
+        Ok(stuff) => stuff,
+        Err(e) => e.to_string(),
+    };
 
     match toml::from_str(&contents) {
         Ok(conf) => conf,
@@ -64,27 +58,58 @@ mod tests {
 
     use super::*;
 
-    // test if we get a default config if there is a problem reading the config file and or env vars
-    // are not set by the user
     #[test]
     fn test_default() {
         const DEFAULT: Config = Config {
             full: 225,
             low: 100,
-            low_perc: 20,
+            low_perc: 25,
             charging: 255,
             discharging: 155,
             unknown: 155,
             ac_in: 225,
         };
-        let env: String = match env::var("USER") {
-            Ok(s) => s,
-            Err(_) => "NAN".to_string(),
-        };
-
-        if env == "NAN".to_string() {
-            let test_config: Config = load_config();
+            let test_config: Config =
+                load_config("a path that doesnt have the file in it".to_string());
             assert_eq!(test_config, DEFAULT);
-        }
+    }
+
+    #[test]
+    fn test_valid_config_file() {
+        let temp_config = "full = 200\nlow=50\nlow_perc=10\ncharging = 180\ndischarging = 90\nunknown = 90\nac_in = 200".to_string();
+
+        let temp_file_path = "../../test_config.toml".to_string();
+        fs::write(&temp_file_path, temp_config).expect("Failed to write temporary config file");
+
+        let test_config: Config = load_config(temp_file_path.clone());
+        let expected_config = Config {
+            full: 200,
+            low: 50,
+            low_perc: 10,
+            charging: 180,
+            discharging: 90,
+            unknown: 90,
+            ac_in: 200,
+        };
+        assert_eq!(test_config, expected_config);
+
+        fs::remove_file(temp_file_path).expect("Failed to remove temporary config file");
+    }
+
+    #[test]
+    fn test_missing_config_file() {
+        std::env::remove_var("USER");
+        let temp_file_path = "missing_test_config.toml".to_string();
+        let test_config: Config = load_config(temp_file_path);
+        let expected_config = Config {
+            full: 225,
+            low: 100,
+            low_perc: 25,
+            charging: 255,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 225,
+        };
+        assert_eq!(test_config, expected_config);
     }
 }
