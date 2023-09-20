@@ -1,0 +1,31 @@
+name: Publish to Crates.io on Main Branch Merge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build and Test
+        run: |
+          cargo build --release --verbose
+          cargo test --verbose
+
+      - name: Publish to Crates.io
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "Publishing to Crates.io..."
+          cargo login --token ${{ secrets.CRATESIO }}
+          cargo publish
