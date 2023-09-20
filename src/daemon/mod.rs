@@ -213,7 +213,7 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
         battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
 
         if status_changed(&battery_info) {
-            try_change(device, &mut battery_info);
+            try_change(device, &battery_info);
         }
         loop_update(&manager, &mut battery_info, &mut battery, sleep_duration)?;
     }
