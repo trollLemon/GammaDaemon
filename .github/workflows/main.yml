@@ -29,7 +29,7 @@ jobs:
       - name: Build and Test with Coverage
         run: |
           # Run tests with coverage using tarpaulin
-          cargo tarpaulin --out Xml --exclude-files none --ignore-tests
+          cargo tarpaulin --out xml --exclude-files none --ignore-tests
 
       - name: Upload Code Coverage to Codecov
         uses: codecov/codecov-action@v3
