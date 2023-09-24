@@ -102,23 +102,34 @@ fn calc_new_brightness(info: &BatteryInfo) -> u32 {
         (State::Empty, _) => low_or_discharging(info),
         (State::Unknown, true) => config.ac_in,
         (State::Unknown, false) => config.discharging,
-        _=> config.discharging
+        _ => config.discharging,
     }
 }
 
 /* Returns a bool showing if the battery has changed states.
  * I.E: From State::Charging to State::Discharging
  *
- * This function requires references to an old battery state and a new one
+ * This function requires references a battery state and a bool.
+ *
+ * The battery state has our state values, the bool is a check to make
+ * sure if we set the screen gamma to low, the status changes only if the screen wasn't
+ * at low before hand. If its still low, then the status hasn't changed
+ *
  */
-fn status_changed(status: &BatteryInfo) -> bool {
+fn status_changed(status: &BatteryInfo, low_set: &bool) -> bool {
     let old_status = status.old_status;
     let new_status = status.new_status;
+
+    let config = &status.gamma_values;
+    let low_perc = (config.low_perc as f32) / 100.0;
+    let curr_perc = status.soc;
 
     let old_ac_status = status.old_ac_status;
     let new_ac_status = status.new_ac_status;
 
-    old_status != new_status || old_ac_status != new_ac_status
+    old_status != new_status
+        || old_ac_status != new_ac_status
+        || (curr_perc < low_perc && !low_set/*have we already set the gamma to low?*/)
 }
 
 fn daemonize() {
@@ -138,7 +149,6 @@ fn daemonize() {
         Err(e) => eprintln!("{}", e),
     }
 }
-
 
 /* Updates important structs and sleeps the thread.
  * This shall be called each loop during the daemons run time
@@ -185,8 +195,11 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
         Err(_) => "NAN".to_string(),
     };
 
-    
-    let config_file = if path == "NAN" {"/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml"} else {path.to_string()};
+    let config_file = if path == "NAN" {
+        "/home/".to_owned() + &env + "/.config/GammaDaemon/conf.toml"
+    } else {
+        path.to_string()
+    };
     let config: Config = config::load_config(config_file);
 
     let manager = battery::Manager::new()?;
@@ -201,8 +214,10 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
     battery_info.old_status = old_status;
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
 
-    update(&mut battery_info,&battery);
-
+    update(&mut battery_info, &battery);
+    let mut low_set = true; // to keep track when we set the screen gamma to low.
+                            // We only want to set the low gamma once until we are
+                            // no longer at low battery.
     loop {
         let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap();
 
@@ -212,8 +227,10 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
         battery_info.new_status = status;
         battery_info.new_ac_status = new_ac_status.chars().next().unwrap_or('0');
 
-        if status_changed(&battery_info) {
+        if status_changed(&battery_info, &low_set) {
             try_change(device, &battery_info);
+            low_set = !low_set; // since the status changed we possibly set the brightness to low,
+                                // we dont want to keep doing it.
         }
         loop_update(&manager, &mut battery_info, &mut battery, sleep_duration)?;
     }
@@ -329,12 +346,12 @@ mod tests {
             }),
         };
 
-        assert_eq!(true, status_changed(&battery_info1));
+        let low = false;
+        assert_eq!(true, status_changed(&battery_info1, &low));
         battery_info1.old_status = State::Discharging;
         battery_info1.old_ac_status = 'D';
-        assert_eq!(false, status_changed(&battery_info1));
+        assert_eq!(false, status_changed(&battery_info1, &low));
     }
-
 
     #[test]
     fn test_new_gamma_unknown() {
