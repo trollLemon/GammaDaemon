@@ -79,7 +79,7 @@ mod tests {
     fn test_valid_config_file() {
         let temp_config = "full = 200\nlow=50\nlow_perc=10\ncharging = 180\ndischarging = 90\nunknown = 90\nac_in = 200".to_string();
 
-        let temp_file_path = "../../test_config.toml".to_string();
+        let temp_file_path = "test_config.toml".to_string();
         fs::write(&temp_file_path, temp_config).expect("Failed to write temporary config file");
 
         let test_config: Config = load_config(temp_file_path.clone());
