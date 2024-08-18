@@ -22,7 +22,7 @@ pub struct Config {
 }
 
 /* Returns a config struct with the user config values
- * If there is no config file, or the ENV var is not set: a default config is supplied to serde
+ * If there is no config file, or the ENV var is not set, GammaDaemon will use the default config
  *
  * */
 pub fn load_config(path: String) -> Config {
@@ -35,13 +35,16 @@ pub fn load_config(path: String) -> Config {
         unknown: 155,
         ac_in: 225,
     };
+    
 
-    let contents = match fs::read_to_string(path) {
-        Ok(stuff) => stuff,
-        Err(e) => e.to_string(),
-    };
-
-    match toml::from_str(&contents) {
+    let config_data = fs::read_to_string(path);
+    
+    if config_data.is_err() {
+        return DEFAULT;
+    }
+    
+    //config data won't be none, so we can safely use unwrap
+    match toml::from_str(&config_data.unwrap()) {
         Ok(conf) => conf,
         Err(e) => {
             eprintln!(
@@ -100,6 +103,30 @@ mod tests {
     fn test_missing_config_file() {
         let temp_file_path = "missing_test_config.toml".to_string();
         let test_config: Config = load_config(temp_file_path);
+        let expected_config = Config {
+            full: 225,
+            low: 100,
+            low_perc: 25,
+            charging: 255,
+            discharging: 155,
+            unknown: 155,
+            ac_in: 225,
+        };
+        assert_eq!(test_config, expected_config);
+    }
+
+
+    #[test]
+    fn test_empty_config_file() {
+        
+        let temp_config = "";
+
+        let temp_file_path = "../../test_config.toml".to_string();
+        fs::write(&temp_file_path, temp_config).expect("Failed to write temporary config file");
+
+        let test_config: Config = load_config(temp_file_path.clone());
+
+
         let expected_config = Config {
             full: 225,
             low: 100,
