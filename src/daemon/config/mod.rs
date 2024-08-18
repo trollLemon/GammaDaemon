@@ -98,7 +98,6 @@ mod tests {
 
     #[test]
     fn test_missing_config_file() {
-        std::env::remove_var("USER");
         let temp_file_path = "missing_test_config.toml".to_string();
         let test_config: Config = load_config(temp_file_path);
         let expected_config = Config {
