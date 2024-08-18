@@ -8,15 +8,13 @@
 use battery::{Battery, State};
 use bulbb::error::Error;
 use bulbb::monitor::MonitorDevice;
-use daemonize::Daemonize;
-use std::fs::File;
 use std::thread;
 use std::time::Duration;
 mod config;
-mod read_file;
-use crate::daemon::config::Config;
+use config::Config;
 use std::env;
-
+use std::fs;
+use std::io;
 pub const AC_STATUS_FILE: &str = "/sys/class/power_supply/AC/online"; //this is the AC status file
 
 pub trait Backlight {
@@ -43,6 +41,14 @@ pub struct BatteryInfo {
     new_ac_status: char,
     gamma_values: Box<Config>,
 }
+
+
+
+pub fn read(path: &str) -> io::Result<String> {
+    let data = fs::read_to_string(path)?;
+    Ok(data)
+}
+
 
 // Make a struct for our Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
@@ -132,24 +138,6 @@ fn status_changed(status: &BatteryInfo, low_set: &bool) -> bool {
         || (curr_perc < low_perc && !low_set/*have we already set the gamma to low?*/)
 }
 
-fn daemonize() {
-    let stdout = File::create("/tmp/gamma_daemon.out").unwrap();
-    let stderr = File::create("/tmp/gamma_daemon.err").unwrap();
-
-    let daemonize = Daemonize::new()
-        .pid_file("/tmp/gamma_daemon.pid")
-        .working_directory("/tmp")
-        .group("video") // Group name
-        .stdout(stdout) // Redirect stdout to `/tmp/daemon.out`.
-        .stderr(stderr) // Redirect stderr to `/tmp/daemon.err`.
-        .privileged_action(|| "Executed before drop privileges");
-
-    match daemonize.start() {
-        Ok(_) => println!("gamma_daemon started"),
-        Err(e) => eprintln!("{}", e),
-    }
-}
-
 /* Updates important structs and sleeps the thread.
  * This shall be called each loop during the daemons run time
  * */
@@ -207,9 +195,8 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
     let mut battery_info = Box::new(new_battery_info(config, &mut battery));
 
     let old_status = battery.state();
-    let old_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap();
+    let old_ac_status: String = read(AC_STATUS_FILE).unwrap();
 
-    daemonize();
 
     battery_info.old_status = old_status;
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
@@ -219,7 +206,7 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
                             // We only want to set the low gamma once until we are
                             // no longer at low battery.
     loop {
-        let new_ac_status: String = read_file::get_contents(AC_STATUS_FILE).unwrap();
+        let new_ac_status: String = read(AC_STATUS_FILE).unwrap();
 
         let status = battery.state();
 
