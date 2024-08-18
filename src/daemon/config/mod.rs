@@ -35,14 +35,13 @@ pub fn load_config(path: String) -> Config {
         unknown: 155,
         ac_in: 225,
     };
-    
 
     let config_data = fs::read_to_string(path);
-    
+
     if config_data.is_err() {
         return DEFAULT;
     }
-    
+
     //config data won't be none, so we can safely use unwrap
     match toml::from_str(&config_data.unwrap()) {
         Ok(conf) => conf,
@@ -72,9 +71,8 @@ mod tests {
             unknown: 155,
             ac_in: 225,
         };
-            let test_config: Config =
-                load_config("a path that doesnt have the file in it".to_string());
-            assert_eq!(test_config, DEFAULT);
+        let test_config: Config = load_config("a path that doesnt have the file in it".to_string());
+        assert_eq!(test_config, DEFAULT);
     }
 
     #[test]
@@ -115,17 +113,14 @@ mod tests {
         assert_eq!(test_config, expected_config);
     }
 
-
     #[test]
     fn test_empty_config_file() {
-        
         let temp_config = "";
 
         let temp_file_path = "../../test_config.toml".to_string();
         fs::write(&temp_file_path, temp_config).expect("Failed to write temporary config file");
 
         let test_config: Config = load_config(temp_file_path.clone());
-
 
         let expected_config = Config {
             full: 225,

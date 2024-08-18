@@ -42,13 +42,10 @@ pub struct BatteryInfo {
     gamma_values: Box<Config>,
 }
 
-
-
 pub fn read(path: &str) -> io::Result<String> {
     let data = fs::read_to_string(path)?;
     Ok(data)
 }
-
 
 // Make a struct for our Battery Info
 // Initially sets all values to either unknown and 0 for the state and AC status
@@ -196,7 +193,6 @@ pub fn run(device: &MonitorDevice, path: &String) -> Result<(), battery::Error> 
 
     let old_status = battery.state();
     let old_ac_status: String = read(AC_STATUS_FILE).unwrap();
-
 
     battery_info.old_status = old_status;
     battery_info.old_ac_status = old_ac_status.chars().next().unwrap_or('0');
