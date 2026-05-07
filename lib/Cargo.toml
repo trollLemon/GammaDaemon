@@ -1,0 +1,13 @@
+[package]
+name = "gamma-lib"
+description = "Shared library for GammaDaemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+
+[dependencies]
+toml = { workspace = true }
+serde = { workspace = true }
