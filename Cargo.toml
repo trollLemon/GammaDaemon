@@ -16,7 +16,6 @@ homepage = "https://github.com/trollLemon/GammaDaemon"
 
 [workspace.dependencies]
 battery = { git = "https://github.com/trollLemon/rust-battery" }
-blight = "0.7.1"
 clap = "4.5.58"
 serde = {version = "1.0.188", features = ["derive"]}
 toml = "0.8"
@@ -27,6 +26,7 @@ opt-level = "z"
 strip = true
 lto = true
 debug-assertions = false
+debug = 0
 overflow-checks = false
 panic = "abort"
 incremental = false

@@ -49,11 +49,11 @@ fn send_unix_http_request(
     Ok((status, body))
 }
 
-pub fn set_gamma(value: u8) -> Result<String, Box<dyn Error>> {
+pub fn set_gamma(value: f32) -> Result<String, Box<dyn Error>> {
     set_gamma_on_socket(constants::DEFAULT_SOCKET_PATH, value)
 }
 
-fn set_gamma_on_socket(socket_path: &str, value: u8) -> Result<String, Box<dyn Error>> {
+fn set_gamma_on_socket(socket_path: &str, value: f32) -> Result<String, Box<dyn Error>> {
     let payload = payloads::SetPayload { gamma: value };
     let bytes = serde_json::to_vec(&payload)?;
     let (status, body) =
@@ -143,7 +143,6 @@ mod tests {
     };
     use gamma_lib::payloads;
     use serde::Serialize;
-    use serde_json;
     use std::error::Error;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixListener;
@@ -215,7 +214,7 @@ mod tests {
         let payload = payloads::StatusPayload {
             enabled: true,
             gamma_state: "state".to_string(),
-            gamma: 200,
+            gamma: 0.85,
         };
 
         let server = spawn_temp_unix_server(payload, 200);
@@ -233,7 +232,7 @@ mod tests {
         let payload = payloads::StatusPayload {
             enabled: false,
             gamma_state: "state".to_string(),
-            gamma: 0,
+            gamma: 0.0,
         };
 
         let server = spawn_temp_unix_server(payload, 200);
@@ -260,7 +259,7 @@ mod tests {
         let payload = payloads::StatusPayload {
             enabled: false,
             gamma_state: "state".to_string(),
-            gamma: 200,
+            gamma: 0.85,
         };
 
         let server = spawn_temp_unix_server(payload, 400);
@@ -369,13 +368,13 @@ mod tests {
 
     #[test]
     fn test_set_gamma_ok() {
-        let payload = payloads::SetPayload { gamma: 128 };
+        let payload = payloads::SetPayload { gamma: 0.5 };
 
         let server = spawn_temp_unix_server(payload, 200);
 
         assert!(server.is_ok());
 
-        let rslt = set_gamma_on_socket(server.unwrap().socket_path.to_str().unwrap(), 128);
+        let rslt = set_gamma_on_socket(server.unwrap().socket_path.to_str().unwrap(), 0.5);
         assert!(rslt.is_ok());
         let actual = rslt.unwrap();
         assert_eq!(actual, "Gamma set successfully");
@@ -383,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_set_gamma_bad_socket() {
-        let rslt = set_gamma_on_socket("a.socket", 128);
+        let rslt = set_gamma_on_socket("a.socket", 0.5);
         assert!(rslt.is_err());
         let err = rslt.unwrap_err();
 
@@ -392,13 +391,13 @@ mod tests {
 
     #[test]
     fn test_set_gamma_bad_request() {
-        let payload = payloads::SetPayload { gamma: 128 };
+        let payload = payloads::SetPayload { gamma: 0.5 };
 
         let server = spawn_temp_unix_server(payload, 400);
 
         assert!(server.is_ok());
 
-        let rslt = set_gamma_on_socket(server.unwrap().socket_path.to_str().unwrap(), 128);
+        let rslt = set_gamma_on_socket(server.unwrap().socket_path.to_str().unwrap(), 0.5);
         assert!(rslt.is_err());
         let err = rslt.unwrap_err();
 

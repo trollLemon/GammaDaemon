@@ -3,42 +3,48 @@ use gamma_lib::payloads;
 use smol::{net::unix::UnixStream, prelude::*};
 use std::error::Error;
 
-/// Reads an HTTP request from the given Unix stream and splits it into the header
-/// string and body bytes. Honors `Content-Length` to know how many body bytes to read.
+pub struct HttpRequest {
+    pub method: String,
+    pub path: String,
+    pub body: Vec<u8>,
+}
+
+/// Reads an HTTP request from the given Unix stream,
 pub async fn extract_http_request(
     stream: &mut UnixStream,
-) -> Result<(String, Vec<u8>), Box<dyn Error>> {
+) -> Result<HttpRequest, Box<dyn Error>> {
     let mut buffer = Vec::new();
     let mut temp = [0u8; 512];
 
-    let header_end = loop {
+    let (header_len, content_length, method, path) = loop {
         let n = stream.read(&mut temp).await?;
         if n == 0 {
             return Err("Connection closed before headers finished".into());
         }
         buffer.extend_from_slice(&temp[..n]);
-        if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
-            break pos;
+
+        let mut headers = [httparse::EMPTY_HEADER; 32];
+        let mut req = httparse::Request::new(&mut headers);
+        match req.parse(&buffer)? {
+            httparse::Status::Complete(len) => {
+                let mut content_length: usize = 0;
+                for h in req.headers.iter() {
+                    if h.name.eq_ignore_ascii_case("content-length") {
+                        content_length = std::str::from_utf8(h.value)?.trim().parse::<usize>()?;
+                        break;
+                    }
+                }
+                let method = req.method.unwrap_or("GET").to_string();
+                let path = req.path.unwrap_or("/").to_string();
+
+
+                break (len, content_length, method, path);
+            }
+            httparse::Status::Partial => continue,
         }
     };
 
-    let header_bytes = &buffer[..header_end];
-    let leftover_body = &buffer[(header_end + 4)..];
-
-    let header_str = std::str::from_utf8(header_bytes)?.to_string();
-    let mut content_length = 0;
-    for line in header_str.lines() {
-        if line.to_lowercase().starts_with("content-length:") {
-            content_length = line
-                .split(':')
-                .nth(1)
-                .unwrap_or("0")
-                .trim()
-                .parse::<usize>()?;
-        }
-    }
-
-    let mut body = leftover_body.to_vec();
+    let mut body = buffer[header_len..].to_vec();
     while body.len() < content_length {
         let mut body_temp = [0u8; 512];
         let n = stream.read(&mut body_temp).await?;
@@ -48,7 +54,11 @@ pub async fn extract_http_request(
         body.extend_from_slice(&body_temp[..n]);
     }
 
-    Ok((header_str, body))
+    Ok(HttpRequest {
+        method,
+        path,
+        body,
+    })
 }
 
 /// Builds an `ErrorPayload` with the provided status string and human-readable message,

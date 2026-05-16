@@ -1,17 +1,16 @@
-#![allow(dead_code)]
-
 use crate::core::daemon;
 use crate::http;
 use gamma_lib::{constants, payloads};
+
 use log::error;
 use smol::lock::Mutex;
 use smol::{
     net::unix::{UnixListener, UnixStream},
     prelude::*,
+    LocalExecutor,
 };
 
-use std::sync::Arc;
-
+use std::rc::Rc;
 
 /// Handles the `/status` endpoint: queries the daemon for its current status
 /// and returns the JSON-encoded `StatusPayload` as the response body.
@@ -19,9 +18,9 @@ fn status_handler<D>(
     mut dmn: async_lock::MutexGuard<D>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>>
 where
-    D: daemon::Daemon + Send + Sync + 'static,
+    D: daemon::Daemon + 'static,
 {
-    let status = dmn.status()?;
+    let status = dmn.status();
     let status_json = payloads::StatusPayload {
         enabled: status.enabled,
         gamma: status.gamma,
@@ -39,7 +38,7 @@ fn set_handler<D>(
     body: &[u8],
 ) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>>
 where
-    D: daemon::Daemon + Send + Sync + 'static,
+    D: daemon::Daemon + 'static,
 {
     let payload: payloads::SetPayload = serde_json::from_slice(body)?;
     let status_code: String = "200 OK".to_string();
@@ -59,7 +58,7 @@ fn toggle_handler<D>(
     body: &[u8],
 ) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>>
 where
-    D: daemon::Daemon + Send + Sync + 'static,
+    D: daemon::Daemon + 'static,
 {
     let payload: payloads::TogglePayload = serde_json::from_slice(body)?;
     let resp_body: Vec<u8>;
@@ -100,17 +99,14 @@ where
 /// appropriate endpoint handler, and writes the HTTP response back to the stream.
 async fn handle_connection<D>(
     mut stream: UnixStream,
-    dmn_mutex: &Arc<Mutex<D>>,
+    dmn_mutex: &Rc<Mutex<D>>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    D: daemon::Daemon + Send + Sync + 'static,
+    D: daemon::Daemon + 'static,
 {
-    let (header, body) = http::extract_http_request(&mut stream).await?;
-    let status_line = header.lines().next().ok_or("No status line")?;
-    let parts: Vec<&str> = status_line.split_whitespace().collect();
-    // TODO: better error handling here
-    let _method = parts.first().unwrap_or(&"GET").to_owned();
-    let endpoint = parts.get(1).unwrap_or(&"/").to_owned();
+    let req = http::extract_http_request(&mut stream).await?;
+    let body = req.body;
+    let endpoint = req.path.as_str();
 
     let dmn = dmn_mutex.lock().await;
 
@@ -162,19 +158,25 @@ where
 
     stream.write_all(response.as_bytes()).await?;
     stream.write_all(resp_body.as_slice()).await?;
+    stream.flush().await?;
+    stream.close().await?;
     Ok(())
 }
 
-/// Accepts incoming connections on the given Unix listener forever, spawning a
+/// Accepts incoming connections on the given Unix listener, spawning a
 /// task per connection to handle the request against the shared daemon.
-pub async fn listen_and_serve<D>(listener: UnixListener, dmn: Arc<Mutex<D>>) -> std::io::Result<()>
+pub async fn listen_and_serve<D>(
+    ex: &LocalExecutor<'_>,
+    listener: UnixListener,
+    dmn: Rc<Mutex<D>>,
+) -> std::io::Result<()>
 where
-    D: daemon::Daemon + Send + Sync + 'static,
+    D: daemon::Daemon + 'static,
 {
     loop {
         let (stream, _) = listener.accept().await?;
-        let dmn_clone = Arc::clone(&dmn);
-        smol::spawn(async move {
+        let dmn_clone = Rc::clone(&dmn);
+        ex.spawn(async move {
             handle_connection(stream, &dmn_clone)
                 .await
                 .expect("Failed to handle connection");
@@ -186,27 +188,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::daemon::GammaLevel;
+    use crate::{config::GammaDaemonConfig, core::daemon::GammaLevel};
     use async_lock::Mutex;
     use std::error::Error;
 
     pub struct MockDaemon {
         pub enabled: bool,
         pub level: GammaLevel,
-        pub gamma: u8,
+        pub gamma: f32,
         pub fail_toggle: bool,
     }
 
     impl daemon::Daemon for MockDaemon {
-        fn status(&mut self) -> Result<daemon::Status, Box<dyn Error>> {
-            Ok(daemon::Status {
+        fn status(&mut self) -> daemon::Status {
+            daemon::Status {
                 enabled: self.enabled,
                 gamma: self.gamma,
                 current_gamma_level: self.level,
-            })
+            }
         }
 
-        fn set(&mut self, gamma: u8) -> Result<(), Box<dyn Error>> {
+        fn set(&mut self, gamma: f32) -> Result<(), Box<dyn Error>> {
             self.gamma = gamma;
             Ok(())
         }
@@ -226,6 +228,14 @@ mod tests {
             self.enabled = false;
             Ok(())
         }
+
+        fn tick(&mut self, _: battery::State, _: f32) -> Option<f32> {
+            Some(67.0)
+        }
+
+        fn get_config(&mut self) -> crate::config::GammaDaemonConfig {
+            GammaDaemonConfig::default()
+        }
     }
 
     #[test]
@@ -234,7 +244,7 @@ mod tests {
             let dmn = MockDaemon {
                 enabled: true,
                 level: GammaLevel::Discharging,
-                gamma: 100,
+                gamma: 1.0,
                 fail_toggle: false,
             };
             let mtx = Mutex::new(dmn);
@@ -244,7 +254,7 @@ mod tests {
             let body: payloads::StatusPayload = serde_json::from_slice(&result).unwrap();
 
             assert!(body.enabled);
-            assert_eq!(body.gamma, 100);
+            assert_eq!(body.gamma, 1.0);
         });
     }
 
@@ -254,20 +264,20 @@ mod tests {
             let dmn = MockDaemon {
                 enabled: true,
                 level: GammaLevel::Discharging,
-                gamma: 100,
+                gamma: 1.0,
                 fail_toggle: false,
             };
             let mtx = Mutex::new(dmn);
             let guard = mtx.lock().await;
 
-            let input = serde_json::to_vec(&payloads::SetPayload { gamma: 85 }).unwrap();
+            let input = serde_json::to_vec(&payloads::SetPayload { gamma: 0.85 }).unwrap();
             let (resp, code) = set_handler(guard, &input).unwrap();
 
             assert_eq!(code, "200 OK");
-            assert!(String::from_utf8(resp).unwrap().contains("85"));
+            assert!(String::from_utf8(resp).unwrap().contains("0.85"));
 
             let final_guard = mtx.lock().await;
-            assert_eq!(final_guard.gamma, 85);
+            assert_eq!(final_guard.gamma, 0.85);
         });
     }
 
@@ -277,7 +287,7 @@ mod tests {
             let dmn = MockDaemon {
                 enabled: false,
                 level: GammaLevel::Discharging,
-                gamma: 100,
+                gamma: 100.0,
                 fail_toggle: false,
             };
             let mtx = Mutex::new(dmn);
@@ -306,7 +316,7 @@ mod tests {
             let dmn = MockDaemon {
                 enabled: true,
                 level: GammaLevel::Discharging,
-                gamma: 100,
+                gamma: 100.0,
                 fail_toggle: true,
             };
             let mtx = Mutex::new(dmn);
@@ -329,7 +339,7 @@ mod tests {
             let dmn = MockDaemon {
                 enabled: true,
                 level: GammaLevel::Discharging,
-                gamma: 100,
+                gamma: 100.0,
                 fail_toggle: false,
             };
             let mtx = Mutex::new(dmn);

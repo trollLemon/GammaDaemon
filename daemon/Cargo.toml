@@ -10,6 +10,10 @@ homepage.workspace = true
 readme = "../README.md"
 keywords = ["daemon", "backlight", "brightness"]
 
+[lib]
+name = "gamma_daemon"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gamma-daemon"
 path = "src/main.rs"
@@ -24,3 +28,12 @@ smol = "2.0.2"
 async-lock = "3.4.2"
 log = "0.4.29"
 env_logger = "0.11.10"
+blight = "0.7.1"
+httparse = "1.10.1"
+
+[dev-dependencies]
+gamma-lib = { path = "../lib" }
+battery = { workspace = true }
+serde_json = { workspace = true }
+smol = "2.0.2"
+async-lock = "3.4.2"

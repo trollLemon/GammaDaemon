@@ -2,7 +2,7 @@ use clap::{arg, value_parser, Command};
 
 #[derive(Debug)]
 pub enum CliCommand {
-    SetGamma { value: u8 },
+    SetGamma { value: f32 },
     Enable,
     Disable,
     Status,
@@ -21,8 +21,8 @@ pub fn parse_args() -> CliArgs {
                 .value_parser(["set", "enable", "disable", "status"]),
         )
         .arg(
-            arg!([Value] "Gamma value (required when Action is set)")
-                .value_parser(value_parser!(u8)),
+            arg!([Value] "Gamma fraction in [0.0, 1.0] (required when Action is set)")
+                .value_parser(value_parser!(f32)),
         )
         .get_matches();
 
@@ -36,12 +36,17 @@ pub fn parse_args() -> CliArgs {
 
     let command = match action {
         "set" => {
-            let value = matches.get_one::<u8>("Value").copied().unwrap_or_else(|| {
+            let value = matches.get_one::<f32>("Value").copied().unwrap_or_else(|| {
                 eprintln!("Command 'set' requires a Value. Usage: gd set <Value>");
                 std::process::exit(1);
             });
 
-            CliCommand::SetGamma { value: value }
+            if !(0.0..=1.0).contains(&value) {
+                eprintln!("Gamma value must be in the range [0.0, 1.0]");
+                std::process::exit(1);
+            }
+
+            CliCommand::SetGamma { value }
         }
         "enable" => CliCommand::Enable,
         "disable" => CliCommand::Disable,

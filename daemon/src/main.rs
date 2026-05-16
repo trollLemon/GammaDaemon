@@ -1,19 +1,16 @@
-mod config;
-mod core;
-mod http;
-
-use crate::config::GammaDaemonConfig;
-use crate::core::daemon::GammaDaemon;
-use crate::core::socket_server::listen_and_serve;
+use gamma_daemon::config::{self, GammaDaemonConfig};
+use gamma_daemon::core::daemon::{self, update_loop, GammaDaemon};
+use gamma_daemon::core::socket_server::listen_and_serve;
 use async_lock::Mutex;
 use gamma_lib::constants;
 use log::info;
 use smol::net::unix::UnixListener;
+use smol::LocalExecutor;
 use std::env;
-use std::sync::Arc;
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
+use std::rc::Rc;
 
-/// Entry point for the GammaDaemon binary. Loads the config (falling back to defaults),
-/// constructs the daemon, binds the Unix socket, and runs the listen-and-serve loop.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -26,17 +23,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GammaDaemonConfig::default()
     });
 
-    let dmn = Arc::new(Mutex::new(GammaDaemon::new(cfg)));
+    let mut manager = battery::Manager::new()?;
+    let mut battery = manager.batteries()?.next().unwrap()?;
+
+    let dmn = Rc::new(Mutex::new(GammaDaemon::new(cfg)));
 
     let socket_path = constants::DEFAULT_SOCKET_PATH;
 
     info!("Removing old socket file {} if it exists.", socket_path);
-
     let _ = std::fs::remove_file(socket_path);
-    let listener = UnixListener::bind(socket_path)?;
 
     info!("Binding to socket file at {}", socket_path);
+    let listener = UnixListener::bind(socket_path)?;
+    
+    std::fs::set_permissions(socket_path, Permissions::from_mode(0o600))?;
 
-    smol::block_on(listen_and_serve(listener, dmn))?;
+    let local_ex = LocalExecutor::new();
+
+    smol::block_on(local_ex.run(async {
+        let tick_dmn = Rc::clone(&dmn);
+        local_ex
+            .spawn(async move {
+                update_loop(tick_dmn, &mut manager, &mut battery, daemon::change_gamma).await
+            })
+            .detach();
+
+        listen_and_serve(&local_ex, listener, dmn).await
+    }))?;
     Ok(())
 }
