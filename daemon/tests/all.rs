@@ -63,7 +63,13 @@ fn status_request_returns_current_state() {
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
         let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
-        run_request(&local_ex, &socket_path, dmn, &encode(&payloads::Request::Status)).await
+        run_request(
+            &local_ex,
+            &socket_path,
+            dmn,
+            &encode(&payloads::Request::Status),
+        )
+        .await
     }));
 
     let _ = std::fs::remove_file(&socket_path);

@@ -26,10 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut manager = battery::Manager::new()?;
     let mut battery = manager.batteries()?.next().unwrap()?;
-    
+
     let (s, r) = bounded(1);
 
-    let dmn = Rc::new(Mutex::new(GammaDaemon::new(cfg,s)));
+    let dmn = Rc::new(Mutex::new(GammaDaemon::new(cfg, s)));
 
     let runtime_dir = constants::DEFAULT_RUNTIME_DIR;
     let socket_path = constants::DEFAULT_SOCKET_PATH;
@@ -55,7 +55,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tick_dmn = Rc::clone(&dmn);
         local_ex
             .spawn(async move {
-                update_loop(tick_dmn, &mut manager, &mut battery, daemon::change_gamma, r).await
+                update_loop(
+                    tick_dmn,
+                    &mut manager,
+                    &mut battery,
+                    daemon::change_gamma,
+                    r,
+                )
+                .await
             })
             .detach();
 
