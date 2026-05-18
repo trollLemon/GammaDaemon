@@ -42,6 +42,7 @@ pub fn read_config_from_file(path: &str) -> Result<GammaDaemonConfig, Box<dyn er
     Ok(config)
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

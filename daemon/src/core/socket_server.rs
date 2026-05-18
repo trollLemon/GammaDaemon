@@ -1,6 +1,5 @@
 use crate::core::daemon;
-use crate::http;
-use gamma_lib::{constants, payloads};
+use gamma_lib::payloads;
 
 use log::error;
 use smol::lock::Mutex;
@@ -12,91 +11,79 @@ use smol::{
 
 use std::rc::Rc;
 
-/// Handles the `/status` endpoint: queries the daemon for its current status
-/// and returns the JSON-encoded `StatusPayload` as the response body.
-fn status_handler<D>(
-    mut dmn: async_lock::MutexGuard<D>,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>>
-where
-    D: daemon::Daemon + 'static,
-{
-    let status = dmn.status();
-    let status_json = payloads::StatusPayload {
-        enabled: status.enabled,
-        gamma: status.gamma,
-        gamma_state: status.current_gamma_level.to_string(),
-    };
-    let resp_body: Vec<u8> = serde_json::to_vec(&status_json)?;
+const MAX_REQUEST_SIZE: usize = 8 * 1024;
 
-    Ok(resp_body)
-}
+/// Reads a single newline-delimited message from the stream, returning the
+/// bytes preceding the delimiter. Fails if the message exceeds the size cap.
+async fn read_message(stream: &mut UnixStream) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut buf = Vec::new();
+    let mut temp = [0u8; 512];
 
-/// Handles the `/set` endpoint: parses a `SetPayload` from the request body and
-/// instructs the daemon to set the gamma value. Returns the response body and status code.
-fn set_handler<D>(
-    mut dmn: async_lock::MutexGuard<D>,
-    body: &[u8],
-) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>>
-where
-    D: daemon::Daemon + 'static,
-{
-    let payload: payloads::SetPayload = serde_json::from_slice(body)?;
-    let status_code: String = "200 OK".to_string();
-
-    //TODO: check for error returned if bad gama, then return 400.
-    dmn.set(payload.gamma)?;
-    let resp_body: Vec<u8> =
-        Vec::from("Set gamma to ".to_owned() + payload.gamma.to_string().as_str());
-
-    Ok((resp_body, status_code))
-}
-
-/// Handles the `/toggle` endpoint: parses a `TogglePayload` and either enables or
-/// disables the daemon. Returns a 400 response if the action is unknown or already applied.
-fn toggle_handler<D>(
-    mut dmn: async_lock::MutexGuard<D>,
-    body: &[u8],
-) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>>
-where
-    D: daemon::Daemon + 'static,
-{
-    let payload: payloads::TogglePayload = serde_json::from_slice(body)?;
-    let resp_body: Vec<u8>;
-    let mut status_code: String = "200 OK".to_string();
-
-    if payload.action == "enable" {
-        match dmn.enable() {
-            Err(_) => {
-                status_code = "400 Bad request".to_string();
-                let error_payload = http::new_http_error("400", "GammaDaemon is already enabled");
-                resp_body = serde_json::to_vec(&error_payload)?;
-            }
-            _ => {
-                resp_body = "GammaDaemon is now enabled".as_bytes().to_vec();
-            }
+    loop {
+        let n = stream.read(&mut temp).await?;
+        if n == 0 {
+            break;
         }
-    } else if payload.action == "disable" {
-        match dmn.disable() {
-            Err(_) => {
-                status_code = "400 Bad request".to_string();
-                let error_payload = http::new_http_error("400", "GammaDaemon is already disabled");
-                resp_body = serde_json::to_vec(&error_payload)?;
-            }
-            _ => {
-                resp_body = "GammaDaemon is now disabled".as_bytes().to_vec();
-            }
+        buf.extend_from_slice(&temp[..n]);
+
+        if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            buf.truncate(pos);
+            return Ok(buf);
         }
-    } else {
-        status_code = "400 Bad request".to_string();
-        let error_payload = http::new_http_error("400", "Unknown toggle action");
-        resp_body = serde_json::to_vec(&error_payload)?;
+        if buf.len() > MAX_REQUEST_SIZE {
+            return Err("request exceeds maximum allowed size".into());
+        }
     }
 
-    Ok((resp_body, status_code))
+    if buf.is_empty() {
+        return Err("connection closed before a request was received".into());
+    }
+    Ok(buf)
 }
 
-/// Handles a single client connection: parses the HTTP request, dispatches to the
-/// appropriate endpoint handler, and writes the HTTP response back to the stream.
+/// Applies a parsed request to the daemon and produces the response to send back.
+fn dispatch<D>(request: payloads::Request, mut dmn: async_lock::MutexGuard<D>) -> payloads::Response
+where
+    D: daemon::Daemon + 'static,
+{
+    match request {
+        payloads::Request::Status => {
+            let status = dmn.status();
+            payloads::Response::Status(payloads::StatusPayload {
+                enabled: status.enabled,
+                gamma: status.gamma,
+                gamma_state: status.current_gamma_level.to_string(),
+            })
+        }
+        payloads::Request::Set { gamma } => match dmn.set(gamma) {
+            Ok(()) => payloads::Response::Ok {
+                message: format!("Set gamma to {gamma}"),
+            },
+            Err(e) => payloads::Response::Error {
+                message: format!("failed to set gamma: {e}"),
+            },
+        },
+        payloads::Request::Enable => match dmn.enable() {
+            Ok(()) => payloads::Response::Ok {
+                message: "GammaDaemon is now enabled".to_string(),
+            },
+            Err(_) => payloads::Response::Error {
+                message: "GammaDaemon is already enabled".to_string(),
+            },
+        },
+        payloads::Request::Disable => match dmn.disable() {
+            Ok(()) => payloads::Response::Ok {
+                message: "GammaDaemon is now disabled".to_string(),
+            },
+            Err(_) => payloads::Response::Error {
+                message: "GammaDaemon is already disabled".to_string(),
+            },
+        },
+    }
+}
+
+/// Handles a single client connection: reads one JSON request, dispatches it
+/// against the shared daemon, and writes one JSON response back.
 async fn handle_connection<D>(
     mut stream: UnixStream,
     dmn_mutex: &Rc<Mutex<D>>,
@@ -104,60 +91,22 @@ async fn handle_connection<D>(
 where
     D: daemon::Daemon + 'static,
 {
-    let req = http::extract_http_request(&mut stream).await?;
-    let body = req.body;
-    let endpoint = req.path.as_str();
+    let raw = read_message(&mut stream).await?;
 
-    let dmn = dmn_mutex.lock().await;
-
-    let mut resp_body: Vec<u8> = "".as_bytes().to_vec();
-    let mut status_code: String = "200 OK".to_string();
-
-    match endpoint {
-        constants::ENDPOINT_STATUS => match status_handler(dmn) {
-            Ok(status_resp_body) => {
-                resp_body = status_resp_body;
-            }
-            Err(e) => {
-                error!("{}", e);
-                status_code = "500 Internal server error".to_string();
-            }
-        },
-        constants::ENDPOINT_TOGGLE => match toggle_handler(dmn, &body) {
-            Ok((toggle_resp_body, toggle_status_code)) => {
-                resp_body = toggle_resp_body;
-                status_code = toggle_status_code;
-            }
-            Err(e) => {
-                error!("{}", e);
-                status_code = "500 Internal server error".to_string();
-            }
-        },
-        constants::ENDPOINT_SET_GAMMA => match set_handler(dmn, &body) {
-            Ok((set_response_body, set_status_code)) => {
-                resp_body = set_response_body;
-                status_code = set_status_code;
-            }
-            Err(e) => {
-                error!("{}", e);
-                status_code = "500 Internal server error".to_string();
-            }
-        },
-        _ => {
-            status_code = "404 Not Found".to_string();
-            let error_payload = http::new_http_error("404", "endpoint not found");
-            resp_body = serde_json::to_vec(&error_payload)?;
+    let response = match serde_json::from_slice::<payloads::Request>(&raw) {
+        Ok(request) => {
+            let dmn = dmn_mutex.lock().await;
+            dispatch(request, dmn)
         }
-    }
+        Err(e) => payloads::Response::Error {
+            message: format!("invalid request: {e}"),
+        },
+    };
 
-    let response = format!(
-        "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status_code,
-        resp_body.len(),
-    );
+    let mut bytes = serde_json::to_vec(&response)?;
+    bytes.push(b'\n');
 
-    stream.write_all(response.as_bytes()).await?;
-    stream.write_all(resp_body.as_slice()).await?;
+    stream.write_all(&bytes).await?;
     stream.flush().await?;
     stream.close().await?;
     Ok(())
@@ -177,9 +126,9 @@ where
         let (stream, _) = listener.accept().await?;
         let dmn_clone = Rc::clone(&dmn);
         ex.spawn(async move {
-            handle_connection(stream, &dmn_clone)
-                .await
-                .expect("Failed to handle connection");
+            if let Err(e) = handle_connection(stream, &dmn_clone).await {
+                error!("failed to handle connection: {e}");
+            }
         })
         .detach();
     }
@@ -238,123 +187,91 @@ mod tests {
         }
     }
 
+    fn mock(enabled: bool, fail_toggle: bool) -> MockDaemon {
+        MockDaemon {
+            enabled,
+            level: GammaLevel::Discharging,
+            gamma: 1.0,
+            fail_toggle,
+        }
+    }
+
     #[test]
-    fn test_status_handler() {
+    fn dispatch_status_returns_state() {
         smol::block_on(async {
-            let dmn = MockDaemon {
-                enabled: true,
-                level: GammaLevel::Discharging,
-                gamma: 1.0,
-                fail_toggle: false,
-            };
-            let mtx = Mutex::new(dmn);
-            let guard = mtx.lock().await;
+            let mtx = Mutex::new(mock(true, false));
+            let response = dispatch(payloads::Request::Status, mtx.lock().await);
 
-            let result = status_handler(guard).unwrap();
-            let body: payloads::StatusPayload = serde_json::from_slice(&result).unwrap();
-
-            assert!(body.enabled);
-            assert_eq!(body.gamma, 1.0);
+            match response {
+                payloads::Response::Status(status) => {
+                    assert!(status.enabled);
+                    assert_eq!(status.gamma, 1.0);
+                }
+                other => panic!("expected status response, got {other:?}"),
+            }
         });
     }
 
     #[test]
-    fn test_set_handler() {
+    fn dispatch_set_updates_gamma() {
         smol::block_on(async {
-            let dmn = MockDaemon {
-                enabled: true,
-                level: GammaLevel::Discharging,
-                gamma: 1.0,
-                fail_toggle: false,
-            };
-            let mtx = Mutex::new(dmn);
-            let guard = mtx.lock().await;
+            let mtx = Mutex::new(mock(true, false));
+            let response = dispatch(payloads::Request::Set { gamma: 0.85 }, mtx.lock().await);
 
-            let input = serde_json::to_vec(&payloads::SetPayload { gamma: 0.85 }).unwrap();
-            let (resp, code) = set_handler(guard, &input).unwrap();
-
-            assert_eq!(code, "200 OK");
-            assert!(String::from_utf8(resp).unwrap().contains("0.85"));
-
-            let final_guard = mtx.lock().await;
-            assert_eq!(final_guard.gamma, 0.85);
+            assert!(matches!(response, payloads::Response::Ok { .. }));
+            assert_eq!(mtx.lock().await.gamma, 0.85);
         });
     }
 
     #[test]
-    fn test_toggle_handler_enable_success() {
+    fn dispatch_enable_success() {
         smol::block_on(async {
-            let dmn = MockDaemon {
-                enabled: false,
-                level: GammaLevel::Discharging,
-                gamma: 100.0,
-                fail_toggle: false,
-            };
-            let mtx = Mutex::new(dmn);
-            let guard = mtx.lock().await;
+            let mtx = Mutex::new(mock(false, false));
+            let response = dispatch(payloads::Request::Enable, mtx.lock().await);
 
-            let input = serde_json::to_vec(&payloads::TogglePayload {
-                action: "enable".to_string(),
-            })
-            .unwrap();
-            let (resp, code) = toggle_handler(guard, &input).unwrap();
-
-            assert_eq!(code, "200 OK");
-            assert_eq!(
-                String::from_utf8(resp).unwrap(),
-                "GammaDaemon is now enabled"
-            );
-
-            let final_guard = mtx.lock().await;
-            assert!(final_guard.enabled);
+            assert!(matches!(response, payloads::Response::Ok { .. }));
+            assert!(mtx.lock().await.enabled);
         });
     }
 
     #[test]
-    fn test_toggle_handler_fail_already_enabled() {
+    fn dispatch_enable_already_enabled() {
         smol::block_on(async {
-            let dmn = MockDaemon {
-                enabled: true,
-                level: GammaLevel::Discharging,
-                gamma: 100.0,
-                fail_toggle: true,
-            };
-            let mtx = Mutex::new(dmn);
-            let guard = mtx.lock().await;
+            let mtx = Mutex::new(mock(true, true));
+            let response = dispatch(payloads::Request::Enable, mtx.lock().await);
 
-            let input = serde_json::to_vec(&payloads::TogglePayload {
-                action: "enable".to_string(),
-            })
-            .unwrap();
-            let (resp, code) = toggle_handler(guard, &input).unwrap();
-
-            assert_eq!(code, "400 Bad request");
-            assert!(String::from_utf8(resp).unwrap().contains("already enabled"));
+            match response {
+                payloads::Response::Error { message } => {
+                    assert!(message.contains("already enabled"))
+                }
+                other => panic!("expected error response, got {other:?}"),
+            }
         });
     }
 
     #[test]
-    fn test_toggle_handler_invalid_action() {
+    fn dispatch_disable_success() {
         smol::block_on(async {
-            let dmn = MockDaemon {
-                enabled: true,
-                level: GammaLevel::Discharging,
-                gamma: 100.0,
-                fail_toggle: false,
-            };
-            let mtx = Mutex::new(dmn);
-            let guard = mtx.lock().await;
+            let mtx = Mutex::new(mock(true, false));
+            let response = dispatch(payloads::Request::Disable, mtx.lock().await);
 
-            let input = serde_json::to_vec(&payloads::TogglePayload {
-                action: "invalid".to_string(),
-            })
-            .unwrap();
-            let (resp, code) = toggle_handler(guard, &input).unwrap();
+            assert!(matches!(response, payloads::Response::Ok { .. }));
+            assert!(!mtx.lock().await.enabled);
+        });
+    }
 
-            assert_eq!(code, "400 Bad request");
-            assert!(String::from_utf8(resp)
-                .unwrap()
-                .contains("Unknown toggle action"));
+    #[test]
+    fn dispatch_disable_already_disabled() {
+        smol::block_on(async {
+            let mtx = Mutex::new(mock(false, true));
+            let response = dispatch(payloads::Request::Disable, mtx.lock().await);
+
+            match response {
+                payloads::Response::Error { message } => {
+                    assert!(message.contains("already disabled"))
+                }
+                other => panic!("expected error response, got {other:?}"),
+            }
         });
     }
 }

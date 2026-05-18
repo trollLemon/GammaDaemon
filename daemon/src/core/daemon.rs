@@ -2,6 +2,7 @@
 
 use std::{error::Error, rc::Rc};
 
+use async_channel::{Receiver, Sender};
 use async_lock::Mutex;
 use battery::{Battery, Manager};
 use log::{error, info};
@@ -66,16 +67,18 @@ pub struct GammaDaemon {
     enabled: bool,
     current_gamma: f32,
     current_gamma_level: GammaLevel,
+    channel_send: Sender<f32>,
     cfg: GammaDaemonConfig,
 }
 
 impl GammaDaemon {
     /// Constructs a new `GammaDaemon` with the given config.
-    pub fn new(cfg: GammaDaemonConfig) -> Self {
+    pub fn new(cfg: GammaDaemonConfig, sender_fn: Sender<f32>) -> Self {
         Self {
             enabled: true,
             current_gamma: 1.0,
             current_gamma_level: GammaLevel::Unknown,
+            channel_send: sender_fn,
             cfg,
         }
     }
@@ -100,6 +103,9 @@ impl Daemon for GammaDaemon {
 
     fn set(&mut self, gamma: f32) -> Result<(), Box<dyn Error>> {
         self.current_gamma = gamma;
+        
+        self.channel_send.try_send(gamma)?;
+
         Ok(())
     }
 
@@ -158,11 +164,11 @@ pub async fn update_loop<D: Daemon>(
     mgr: &mut Manager,
     bat: &mut Battery,
     update_fn: GammaUpdateFn,
+    recv_chan: Receiver<f32>,
 ) {
     let mut refresh_interval;
 
     loop {
-
         if let Err(e) = mgr.refresh(bat) {
             error!("failed to refresh battery: {}", e);
         }
@@ -177,6 +183,36 @@ pub async fn update_loop<D: Daemon>(
             dmn_lock.tick(state, soc.value)
         };
 
+        let trigger = {
+            let tick_delay = async {
+                smol::Timer::after(Duration::from_secs(refresh_interval)).await;
+                None
+            };
+
+            let set = async {
+                match recv_chan.recv().await {
+                    Ok(gamma) => Some(gamma),
+                    Err(e) => {
+                        error!("failed to read gamma value from receiver: {}", e);
+                        None
+                    }
+                }
+            };
+            smol::future::or(tick_delay, set).await
+        };
+
+        if let Some(gamma) = trigger {
+            match update_fn(gamma) {
+                Ok(()) => {
+                    info!("Set gamma to {}", gamma);
+                }
+                Err(e) => {
+                    error!("Failed to change the gamma: {}", e);
+                }
+            }
+            continue;
+        }
+
         if let Some(gamma) = gamma_update {
             match update_fn(gamma) {
                 Ok(()) => {
@@ -187,8 +223,6 @@ pub async fn update_loop<D: Daemon>(
                 }
             }
         }
-
-        smol::Timer::after(Duration::from_secs(refresh_interval)).await;
     }
 }
 
@@ -198,7 +232,8 @@ mod tests {
 
     #[test]
     fn test_enable_when_disabled_succeeds() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         test_dmn.enabled = false;
         let result = test_dmn.enable();
         assert!(result.is_ok());
@@ -206,21 +241,24 @@ mod tests {
 
     #[test]
     fn test_enable_when_already_enabled_errors() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.enable();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_disable_when_enabled_succeeds() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.disable();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_disable_when_already_disabled_errors() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         test_dmn.enabled = false;
         let result = test_dmn.disable();
         assert!(result.is_err());
@@ -228,7 +266,8 @@ mod tests {
 
     #[test]
     fn test_set_updates_current_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.set(0.5);
         assert!(result.is_ok());
         assert_eq!(test_dmn.current_gamma, 0.5);
@@ -236,7 +275,8 @@ mod tests {
 
     #[test]
     fn test_status_reflects_current_state() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.set(0.5);
         assert!(result.is_ok());
 
@@ -248,7 +288,8 @@ mod tests {
 
     #[test]
     fn test_tick_returns_none_when_disabled() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         test_dmn.enabled = false;
         let result = test_dmn.tick(battery::State::Charging, 0.5);
         assert!(result.is_none());
@@ -256,7 +297,8 @@ mod tests {
 
     #[test]
     fn test_tick_returns_none_when_state_unchanged() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         assert!(test_dmn.tick(battery::State::Unknown, 0.5).is_none());
         assert!(test_dmn.tick(battery::State::Charging, 0.5).is_some());
         assert!(test_dmn.tick(battery::State::Charging, 0.5).is_none());
@@ -264,21 +306,24 @@ mod tests {
 
     #[test]
     fn test_tick_full_state_returns_full_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.tick(battery::State::Full, 0.5);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_full));
     }
 
     #[test]
     fn test_tick_charging_state_returns_charging_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.tick(battery::State::Charging, 0.5);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_charging));
     }
 
     #[test]
     fn test_tick_discharging_above_low_threshold_returns_discharging_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let soc = test_dmn.cfg.backlight_config.gamma_low_percentage + 0.1;
         let result = test_dmn.tick(battery::State::Discharging, soc);
         assert_eq!(
@@ -289,12 +334,14 @@ mod tests {
 
     #[test]
     fn test_tick_discharging_at_or_below_low_threshold_returns_low_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let below = test_dmn.cfg.backlight_config.gamma_low_percentage - 0.05;
         let result = test_dmn.tick(battery::State::Discharging, below);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_low));
 
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let at = test_dmn.cfg.backlight_config.gamma_low_percentage;
         let result = test_dmn.tick(battery::State::Discharging, at);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_low));
@@ -302,14 +349,16 @@ mod tests {
 
     #[test]
     fn test_tick_empty_state_returns_plugged_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         let result = test_dmn.tick(battery::State::Empty, 0.5);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_plugged));
     }
 
     #[test]
     fn test_tick_unknown_state_returns_unknown_gamma() {
-        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default());
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
         test_dmn.current_gamma_level = GammaLevel::Full;
         let result = test_dmn.tick(battery::State::Unknown, 0.5);
         assert_eq!(result, Some(test_dmn.cfg.backlight_config.gamma_unknown));

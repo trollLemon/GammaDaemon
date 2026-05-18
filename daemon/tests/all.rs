@@ -18,21 +18,10 @@ fn temp_socket_path(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("gamma-daemon-it-{tag}-{pid}-{nanos}.sock"))
 }
 
-fn split_response(response: &[u8]) -> (String, Vec<u8>) {
-    let header_end = response
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .expect("response missing header/body delimiter");
-    let header = std::str::from_utf8(&response[..header_end])
-        .expect("non-utf8 header")
-        .to_string();
-    let status_line = header
-        .lines()
-        .next()
-        .expect("response missing status line")
-        .to_string();
-    let body = response[(header_end + 4)..].to_vec();
-    (status_line, body)
+fn encode(request: &payloads::Request) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(request).expect("request must serialize to JSON");
+    bytes.push(b'\n');
+    bytes
 }
 
 async fn run_request(
@@ -40,10 +29,9 @@ async fn run_request(
     socket_path: &PathBuf,
     dmn: GammaDaemon,
     request: &[u8],
-) -> Vec<u8> {
+) -> payloads::Response {
     let _ = std::fs::remove_file(socket_path);
-    let listener =
-        UnixListener::bind(socket_path).expect("failed to bind test unix socket");
+    let listener = UnixListener::bind(socket_path).expect("failed to bind test unix socket");
 
     let dmn_mtx = Rc::new(Mutex::new(dmn));
     let server = listen_and_serve(local_ex, listener, Rc::clone(&dmn_mtx));
@@ -57,7 +45,7 @@ async fn run_request(
 
         let mut buf = Vec::new();
         stream.read_to_end(&mut buf).await.expect("read response");
-        buf
+        serde_json::from_slice(&buf).expect("response should be valid Response JSON")
     };
 
     smol::future::or(client, async {
@@ -68,78 +56,40 @@ async fn run_request(
 }
 
 #[test]
-fn status_endpoint_returns_current_state() {
+fn status_request_returns_current_state() {
     let local_ex = LocalExecutor::new();
     let socket_path = temp_socket_path("status-ok");
 
     let response = smol::block_on(local_ex.run(async {
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default());
-        run_request(
-            &local_ex,
-            &socket_path,
-            dmn,
-            b"GET /status HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
-        )
-        .await
+        let (s, _r) = async_channel::bounded(1);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        run_request(&local_ex, &socket_path, dmn, &encode(&payloads::Request::Status)).await
     }));
 
     let _ = std::fs::remove_file(&socket_path);
 
-    let (status_line, body) = split_response(&response);
-    assert_eq!(status_line, "HTTP/1.1 200 OK");
-
-    let payload: payloads::StatusPayload =
-        serde_json::from_slice(&body).expect("body should be valid StatusPayload JSON");
-    assert!(payload.enabled);
-    assert_eq!(payload.gamma, 1.0);
-    assert_eq!(payload.gamma_state, GammaLevel::Unknown.to_string());
+    match response {
+        payloads::Response::Status(status) => {
+            assert!(status.enabled);
+            assert_eq!(status.gamma, 1.0);
+            assert_eq!(status.gamma_state, GammaLevel::Unknown.to_string());
+        }
+        other => panic!("expected status response, got {other:?}"),
+    }
 }
 
 #[test]
-fn status_endpoint_reflects_enabled_daemon() {
+fn invalid_request_returns_error() {
     let local_ex = LocalExecutor::new();
-    let socket_path = temp_socket_path("status-disabled");
+    let socket_path = temp_socket_path("invalid");
 
     let response = smol::block_on(local_ex.run(async {
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default());
-        run_request(
-            &local_ex,
-            &socket_path,
-            dmn,
-            b"GET /status HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
-        )
-        .await
-    }));
-    
-    let _ = std::fs::remove_file(&socket_path);
-
-    let (status_line, body) = split_response(&response);
-    assert_eq!(status_line, "HTTP/1.1 200 OK");
-
-    let payload: payloads::StatusPayload = serde_json::from_slice(&body).unwrap();
-    assert!(payload.enabled);
-    assert_eq!(payload.gamma, 1.0);
-    assert_eq!(payload.gamma_state, GammaLevel::Unknown.to_string());
-}
-
-#[test]
-fn unknown_endpoint_returns_404() {
-    let local_ex = LocalExecutor::new();
-    let socket_path = temp_socket_path("not-found");
-
-    let response = smol::block_on(local_ex.run(async {
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default());
-        run_request(
-            &local_ex,
-            &socket_path,
-            dmn,
-            b"GET /nonsense HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
-        )
-        .await
+        let (s, _r) = async_channel::bounded(1);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        run_request(&local_ex, &socket_path, dmn, b"not valid json\n").await
     }));
 
     let _ = std::fs::remove_file(&socket_path);
 
-    let (status_line, _body) = split_response(&response);
-    assert_eq!(status_line, "HTTP/1.1 404 Not Found");
+    assert!(matches!(response, payloads::Response::Error { .. }));
 }
