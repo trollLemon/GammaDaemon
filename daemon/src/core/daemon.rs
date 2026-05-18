@@ -103,7 +103,7 @@ impl Daemon for GammaDaemon {
 
     fn set(&mut self, gamma: f32) -> Result<(), Box<dyn Error>> {
         self.current_gamma = gamma;
-        
+
         self.channel_send.try_send(gamma)?;
 
         Ok(())
