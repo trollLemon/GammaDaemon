@@ -1,25 +1,42 @@
-[workspace]
-members = [
-    "lib",
-    "cli",
-    "daemon"
-]
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "gamma-daemon"
+description = "GammaDaemon - changes screen brightness based on notebook battery life. Installs the `gamma-daemon` service and the `gd` CLI."
 version = "0.2.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/trollLemon/GammaDaemon"
 documentation = "https://github.com/trollLemon/GammaDaemon"
 homepage = "https://github.com/trollLemon/GammaDaemon"
+readme = "README.md"
+keywords = ["daemon", "cli", "backlight", "brightness"]
 
-[workspace.dependencies]
-battery = { git = "https://github.com/trollLemon/rust-battery" }
+[lib]
+name = "gamma_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gd"
+path = "src/bin/gd/main.rs"
+
+[[bin]]
+name = "gamma-daemon"
+path = "src/bin/gamma-daemon.rs"
+
+[dependencies]
 clap = "4.5.58"
-serde = {version = "1.0.188", features = ["derive"]}
-toml = "0.8"
+serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.149"
+toml = "0.8"
+battery = { git = "https://github.com/trollLemon/rust-battery" }
+smol = "2.0.2"
+async-lock = "3.4.2"
+async-channel = "2.5.0"
+log = "0.4.29"
+env_logger = "0.11.10"
+blight = "0.7.1"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 opt-level = "z"
