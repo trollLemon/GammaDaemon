@@ -67,7 +67,7 @@ pub trait BatteryProvider {
 /// Reads battery state from UPower over a D-Bus connection.
 pub struct UPower {
     conn: Connection,
-    battery_path: String
+    battery_path: String,
 }
 
 impl UPower {
@@ -79,35 +79,40 @@ impl UPower {
 
 impl BatteryProvider for UPower {
     async fn info(&self) -> Result<BatteryInfo, Box<dyn Error>> {
-     let state_msg = self.conn
-        .call_method(
-            Some(SERVICE),
-            self.battery_path.as_str(),
-            Some(PROP_INTERFACE),
-            "Get",
-            &(DEVICE_INTERFACE, "State"),
-        )
-        .await?;
+        let state_msg = self
+            .conn
+            .call_method(
+                Some(SERVICE),
+                self.battery_path.as_str(),
+                Some(PROP_INTERFACE),
+                "Get",
+                &(DEVICE_INTERFACE, "State"),
+            )
+            .await?;
 
-    let soc_msg = self.conn
-        .call_method(
-            Some(SERVICE),
-            self.battery_path.as_str(),
-            Some(PROP_INTERFACE),
-            "Get",
-            &(DEVICE_INTERFACE, "Percentage"),
-        )
-        .await?;
+        let soc_msg = self
+            .conn
+            .call_method(
+                Some(SERVICE),
+                self.battery_path.as_str(),
+                Some(PROP_INTERFACE),
+                "Get",
+                &(DEVICE_INTERFACE, "Percentage"),
+            )
+            .await?;
 
-    let state_var: zbus::zvariant::OwnedValue = state_msg.body().deserialize()?;
-    let state: BatteryState = state_var.try_into()?;
+        let state_var: zbus::zvariant::OwnedValue = state_msg.body().deserialize()?;
+        let state: BatteryState = state_var.try_into()?;
 
-    let soc_var: zbus::zvariant::OwnedValue = soc_msg.body().deserialize()?;
-    let soc: f64 = soc_var.try_into()?;
-    
-    let soc_norm = soc / 100.0;
+        let soc_var: zbus::zvariant::OwnedValue = soc_msg.body().deserialize()?;
+        let soc: f64 = soc_var.try_into()?;
 
-    Ok(BatteryInfo { state, soc: soc_norm })
+        let soc_norm = soc / 100.0;
+
+        Ok(BatteryInfo {
+            state,
+            soc: soc_norm,
+        })
     }
 }
 
@@ -122,8 +127,7 @@ pub async fn find_battery_path(conn: &Connection) -> Result<String, Box<dyn Erro
         )
         .await?;
 
-    let reply: Vec<zbus::zvariant::OwnedObjectPath> =
-        enumerated_devices.body().deserialize()?;
+    let reply: Vec<zbus::zvariant::OwnedObjectPath> = enumerated_devices.body().deserialize()?;
 
     let battery_path = reply
         .into_iter()
@@ -133,4 +137,3 @@ pub async fn find_battery_path(conn: &Connection) -> Result<String, Box<dyn Erro
 
     Ok(battery_path)
 }
-

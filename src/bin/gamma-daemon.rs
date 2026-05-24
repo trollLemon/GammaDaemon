@@ -28,7 +28,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GammaDaemonConfig::default()
     });
 
-
     let (s, r) = bounded(1);
     let (shutdown_s, shutdown_r) = bounded::<()>(1);
 
@@ -65,15 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tick_dmn = Rc::clone(&dmn);
         let loop_shutdown = shutdown_r.clone();
         local_ex
-            .spawn(async move {
-                update_loop(
-                    tick_dmn,
-                    daemon::change_gamma,
-                    r,
-                    loop_shutdown,
-                )
-                .await
-            })
+            .spawn(
+                async move { update_loop(tick_dmn, daemon::change_gamma, r, loop_shutdown).await },
+            )
             .detach();
 
         // Translate SIGTERM/SIGINT into a shutdown by closing the channel.
