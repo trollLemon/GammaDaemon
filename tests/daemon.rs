@@ -1,6 +1,7 @@
 use async_lock::Mutex;
 use gamma_daemon::config::GammaDaemonConfig;
 use gamma_daemon::core::daemon::{GammaDaemon, GammaLevel};
+use gamma_daemon::core::dbus::{BatteryInfo, BatteryProvider, BatteryState};
 use gamma_daemon::core::socket_server::listen_and_serve;
 use gamma_daemon::payloads;
 use smol::net::unix::{UnixListener, UnixStream};
@@ -8,6 +9,18 @@ use smol::prelude::*;
 use smol::LocalExecutor;
 use std::path::PathBuf;
 use std::rc::Rc;
+
+/// A stand-in battery source for socket tests, which never tick the daemon.
+struct MockBattery;
+
+impl BatteryProvider for MockBattery {
+    async fn info(&self) -> Result<BatteryInfo, Box<dyn std::error::Error>> {
+        Ok(BatteryInfo {
+            state: BatteryState::Unknown,
+            soc: 1.0,
+        })
+    }
+}
 
 fn temp_socket_path(tag: &str) -> PathBuf {
     let pid = std::process::id();
@@ -27,7 +40,7 @@ fn encode(request: &payloads::Request) -> Vec<u8> {
 async fn run_request(
     local_ex: &LocalExecutor<'_>,
     socket_path: &PathBuf,
-    dmn: GammaDaemon,
+    dmn: GammaDaemon<MockBattery>,
     request: &[u8],
 ) -> payloads::Response {
     let _ = std::fs::remove_file(socket_path);
@@ -58,7 +71,7 @@ async fn run_request(
 async fn run_requests(
     local_ex: &LocalExecutor<'_>,
     socket_path: &PathBuf,
-    dmn: GammaDaemon,
+    dmn: GammaDaemon<MockBattery>,
     requests: &[Vec<u8>],
 ) -> Vec<payloads::Response> {
     let _ = std::fs::remove_file(socket_path);
@@ -99,7 +112,7 @@ fn status_request_returns_current_state() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(
             &local_ex,
             &socket_path,
@@ -128,7 +141,7 @@ fn invalid_request_returns_error() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(&local_ex, &socket_path, dmn, b"not valid json\n").await
     }));
 
@@ -144,7 +157,7 @@ fn set_request_returns_ok() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(
             &local_ex,
             &socket_path,
@@ -166,7 +179,7 @@ fn enable_request_on_already_enabled_daemon_returns_error() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(
             &local_ex,
             &socket_path,
@@ -191,7 +204,7 @@ fn empty_request_returns_error() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(&local_ex, &socket_path, dmn, b"\n").await
     }));
 
@@ -210,7 +223,7 @@ fn trailing_data_after_newline_is_ignored() {
 
     let response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_request(&local_ex, &socket_path, dmn, &request).await
     }));
 
@@ -226,7 +239,7 @@ fn disable_then_status_reports_disabled() {
 
     let responses = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_requests(
             &local_ex,
             &socket_path,
@@ -255,7 +268,7 @@ fn disable_twice_returns_error_on_second_call() {
 
     let responses = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_requests(
             &local_ex,
             &socket_path,
@@ -284,7 +297,7 @@ fn set_then_status_reflects_new_gamma() {
 
     let responses = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::unbounded();
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
         run_requests(
             &local_ex,
             &socket_path,
@@ -313,7 +326,7 @@ fn oversized_request_closes_connection_without_response() {
 
     let got_response = smol::block_on(local_ex.run(async {
         let (s, _r) = async_channel::bounded(1);
-        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s);
+        let dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, MockBattery);
 
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path).expect("failed to bind test unix socket");
