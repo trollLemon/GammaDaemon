@@ -16,7 +16,7 @@ pub struct BacklightConfig {
     pub gamma_plugged: f32, // gamma fraction (0.0-1.0) to set when the battery is plugged in but not charging
     pub gamma_unknown: f32, // gamma fraction (0.0-1.0) to set when the battery status is unknown
     pub gamma_low: f32,     // gamma fraction (0.0-1.0) to set when the battery is low
-    pub gamma_low_percentage: f32, // battery state-of-charge fraction (0.0-1.0) below which to apply gamma_low
+    pub gamma_low_percentage: f64, // battery state-of-charge fraction (0.0-1.0) below which to apply gamma_low
 }
 
 impl Default for BacklightConfig {
