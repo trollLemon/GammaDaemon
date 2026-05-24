@@ -1,5 +1,5 @@
-use gamma_lib::constants;
-use gamma_lib::payloads;
+use gamma_daemon::constants;
+use gamma_daemon::payloads;
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::Shutdown;
@@ -87,7 +87,7 @@ mod tests {
     use crate::commands::{
         disable_gamma_daemon, enable_gamma_daemon, set_gamma_on_socket, show_status,
     };
-    use gamma_lib::payloads;
+    use gamma_daemon::payloads;
     use std::error::Error;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixListener;

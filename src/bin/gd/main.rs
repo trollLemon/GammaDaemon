@@ -1,7 +1,7 @@
 mod args;
 mod commands;
 
-use gamma_lib::constants;
+use gamma_daemon::constants;
 
 fn main() {
     let cli_args = args::parse_args();

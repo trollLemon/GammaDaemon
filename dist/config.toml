@@ -1,0 +1,9 @@
+[backlight_config]
+poll_interval = 5
+gamma_full = 1.0
+gamma_charging = 0.8
+gamma_discharging = 0.6
+gamma_plugged = 0.9
+gamma_unknown = 0.7
+gamma_low = 0.15
+gamma_low_percentage = 0.2

@@ -1,0 +1,31 @@
+[Unit]
+Description=GammaDaemon - battery-aware screen backlight daemon
+Documentation=https://github.com/trollLemon/GammaDaemon
+
+[Service]
+Type=exec
+# Path must match where the binary was installed (see README "Without Cargo").
+ExecStart=/usr/bin/gamma-daemon /etc/gamma_daemon/config.toml
+Restart=on-failure
+RestartSec=2
+
+# Log verbosity for env_logger: error | warn | info | debug | trace
+Environment=RUST_LOG=info
+
+# systemd creates and owns /run/gamma_daemon; the daemon also ensures it at 0700.
+RuntimeDirectory=gamma_daemon
+RuntimeDirectoryMode=0700
+
+# Hardening. These are safe alongside writes to /sys/class/backlight and /run.
+# Do NOT add ProtectKernelTunables= or ProtectSystem=strict here: both make the
+# backlight sysfs attribute read-only and would break brightness control.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 use crate::core::daemon;
-use gamma_lib::payloads;
+use crate::payloads;
 
 use log::error;
 use smol::lock::Mutex;
@@ -11,7 +11,7 @@ use smol::{
 
 use std::rc::Rc;
 
-const MAX_REQUEST_SIZE: usize = 8 * 1024;
+const MAX_REQUEST_SIZE: usize = 1024;
 
 /// Reads a single newline-delimited message from the stream, returning the
 /// bytes preceding the delimiter. Fails if the message exceeds the size cap.
@@ -178,7 +178,7 @@ mod tests {
             Ok(())
         }
 
-        fn tick(&mut self, _: battery::State, _: f32) -> Option<f32> {
+        async fn tick(&mut self) -> Option<f32> {
             Some(67.0)
         }
 
