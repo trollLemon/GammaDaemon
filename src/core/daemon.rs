@@ -251,7 +251,7 @@ pub async fn update_loop<D: Daemon>(
 mod tests {
     use super::*;
     use crate::core::dbus::BatteryInfo;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
     /// A test battery source for unit tests.
     #[derive(Clone)]
@@ -292,6 +292,59 @@ mod tests {
 
     fn tick(dmn: &mut GammaDaemon<MockBattery>) -> Option<f32> {
         smol::block_on(dmn.tick())
+    }
+
+    /// A battery source whose `info()` always fails, used to exercise the
+    /// error path in `tick`.
+    struct ErrBattery;
+
+    impl BatteryProvider for ErrBattery {
+        async fn info(&self) -> Result<BatteryInfo, Box<dyn Error>> {
+            Err("dbus unavailable".into())
+        }
+    }
+
+    /// Returns the default config with `poll_interval` overridden, so loop tests
+    /// can either fire the tick timer immediately (0) or effectively never (large).
+    fn config_with_poll(poll_interval: u64) -> GammaDaemonConfig {
+        let mut cfg = GammaDaemonConfig::default();
+        cfg.backlight_config.poll_interval = poll_interval;
+        cfg
+    }
+
+    thread_local! {
+        static APPLIED: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+        static UPDATE_SHOULD_FAIL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn reset_recorder() {
+        APPLIED.with(|a| a.borrow_mut().clear());
+        UPDATE_SHOULD_FAIL.with(|f| f.set(false));
+    }
+
+    /// Records every applied gamma value, optionally failing to exercise the
+    /// loop's error-handling branch.
+    fn recording_update_fn(gamma: f32) -> Result<(), Box<dyn Error>> {
+        APPLIED.with(|a| a.borrow_mut().push(gamma));
+        if UPDATE_SHOULD_FAIL.with(|f| f.get()) {
+            Err("forced update failure".into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn applied() -> Vec<f32> {
+        APPLIED.with(|a| a.borrow().clone())
+    }
+
+    fn loop_daemon(
+        cfg: GammaDaemonConfig,
+        sender: Sender<f32>,
+        state: BatteryState,
+        soc: f64,
+    ) -> Rc<Mutex<GammaDaemon<MockBattery>>> {
+        let battery = MockBattery::new(state, soc);
+        Rc::new(Mutex::new(GammaDaemon::new(cfg, sender, battery)))
     }
 
     #[test]
@@ -595,5 +648,123 @@ mod tests {
         let result = smol::block_on(await_trigger(&r, 3600));
         assert_eq!(result, Some(0.75));
         assert!(r.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_tick_returns_none_when_battery_info_errors() {
+        let (s, _r) = async_channel::bounded(1);
+        let mut test_dmn = GammaDaemon::new(GammaDaemonConfig::default(), s, ErrBattery);
+        test_dmn.current_gamma_level = GammaLevel::Full;
+
+        assert!(smol::block_on(test_dmn.tick()).is_none());
+        assert_eq!(test_dmn.current_gamma_level, GammaLevel::Full);
+    }
+
+    /// Spins until `cond` holds, yielding to the executor so the spawned
+    /// `update_loop` task can make progress in between checks.
+    async fn wait_until(mut cond: impl FnMut() -> bool) {
+        while !cond() {
+            smol::future::yield_now().await;
+        }
+    }
+
+    #[test]
+    fn test_update_loop_applies_triggered_gamma() {
+        reset_recorder();
+        let ex = smol::LocalExecutor::new();
+        let (s, recv) = async_channel::unbounded::<f32>();
+        let (sd, shutdown) = async_channel::bounded::<()>(1);
+        let dmn = loop_daemon(config_with_poll(3600), s.clone(), BatteryState::Unknown, 0.5);
+
+        smol::block_on(ex.run(async {
+            let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
+            s.send(0.42).await.expect("send trigger");
+            wait_until(|| applied().contains(&0.42)).await;
+            sd.send(()).await.expect("send shutdown");
+            task.await;
+        }));
+
+        assert_eq!(applied(), vec![0.42]);
+    }
+
+    #[test]
+    fn test_update_loop_returns_on_shutdown() {
+        reset_recorder();
+        let ex = smol::LocalExecutor::new();
+        let (s, recv) = async_channel::unbounded::<f32>();
+        let (sd, shutdown) = async_channel::bounded::<()>(1);
+        let dmn = loop_daemon(config_with_poll(3600), s, BatteryState::Unknown, 0.5);
+
+        smol::block_on(ex.run(async {
+            let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
+            sd.send(()).await.expect("send shutdown");
+            task.await;
+        }));
+
+        assert!(applied().is_empty());
+    }
+
+    #[test]
+    fn test_update_loop_applies_tick_gamma_when_no_trigger() {
+        reset_recorder();
+        let ex = smol::LocalExecutor::new();
+        let (_s, recv) = async_channel::unbounded::<f32>();
+        let (sd, shutdown) = async_channel::bounded::<()>(1);
+        let cfg = config_with_poll(1);
+        let expected = cfg.backlight_config.gamma_charging;
+        let dmn = loop_daemon(cfg, _s, BatteryState::Charging, 0.5);
+
+        smol::block_on(ex.run(async {
+            let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
+            wait_until(|| applied().contains(&expected)).await;
+            sd.send(()).await.expect("send shutdown");
+            task.await;
+        }));
+
+        assert!(applied().contains(&expected));
+    }
+
+    #[test]
+    fn test_update_loop_trigger_takes_precedence_over_tick() {
+        reset_recorder();
+        let ex = smol::LocalExecutor::new();
+        let (s, recv) = async_channel::unbounded::<f32>();
+        let (sd, shutdown) = async_channel::bounded::<()>(1);
+        let cfg = config_with_poll(3600);
+        let tick_gamma = cfg.backlight_config.gamma_charging;
+        let dmn = loop_daemon(cfg, s.clone(), BatteryState::Charging, 0.5);
+
+        smol::block_on(ex.run(async {
+            let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
+            s.send(0.99).await.expect("send trigger");
+            wait_until(|| !applied().is_empty()).await;
+            sd.send(()).await.expect("send shutdown");
+            task.await;
+        }));
+
+        assert_eq!(applied(), vec![0.99]);
+        assert_ne!(0.99, tick_gamma);
+    }
+
+    #[test]
+    fn test_update_loop_continues_when_update_fn_errors() {
+        reset_recorder();
+        UPDATE_SHOULD_FAIL.with(|f| f.set(true));
+        let ex = smol::LocalExecutor::new();
+        let (s, recv) = async_channel::unbounded::<f32>();
+        let (sd, shutdown) = async_channel::bounded::<()>(1);
+        let dmn = loop_daemon(config_with_poll(3600), s.clone(), BatteryState::Unknown, 0.5);
+
+        smol::block_on(ex.run(async {
+            let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
+            s.send(0.5).await.expect("send first trigger");
+            wait_until(|| !applied().is_empty()).await;
+            s.send(0.6).await.expect("send second trigger");
+            wait_until(|| applied().len() >= 2).await;
+            sd.send(()).await.expect("send shutdown");
+            task.await;
+        }));
+
+        assert_eq!(applied(), vec![0.5, 0.6]);
     }
 }

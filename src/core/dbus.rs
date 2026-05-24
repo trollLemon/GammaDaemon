@@ -137,3 +137,55 @@ pub async fn find_battery_path(conn: &Connection) -> Result<String, Box<dyn Erro
 
     Ok(battery_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zbus::zvariant::{OwnedValue, Value};
+
+    #[test]
+    fn battery_state_from_each_valid_u32() {
+        let cases = [
+            (0u32, BatteryState::Unknown),
+            (1, BatteryState::Charging),
+            (2, BatteryState::Discharging),
+            (3, BatteryState::Empty),
+            (4, BatteryState::FullyCharged),
+            (5, BatteryState::PendingCharge),
+            (6, BatteryState::PendingDischarge),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(BatteryState::try_from(raw).expect("valid state"), expected);
+        }
+    }
+
+    #[test]
+    fn battery_state_from_out_of_range_u32_errors() {
+        let err = BatteryState::try_from(7u32).expect_err("7 is not a valid state");
+        assert!(err.contains("Invalid UPower battery state"));
+        assert!(err.contains('7'));
+    }
+
+    #[test]
+    fn battery_state_from_owned_value_u32_succeeds() {
+        let value: OwnedValue = Value::from(4u32).try_into().expect("owned u32 value");
+        assert_eq!(
+            BatteryState::try_from(value).expect("valid state"),
+            BatteryState::FullyCharged
+        );
+    }
+
+    #[test]
+    fn battery_state_from_owned_value_wrong_type_errors() {
+        let value: OwnedValue = Value::from("not a number").try_into().expect("owned str value");
+        let err = BatteryState::try_from(value).expect_err("strings are not battery states");
+        assert!(err.contains("Expected u32 battery state"));
+    }
+
+    #[test]
+    fn battery_state_from_owned_value_out_of_range_errors() {
+        let value: OwnedValue = Value::from(99u32).try_into().expect("owned u32 value");
+        let err = BatteryState::try_from(value).expect_err("99 is not a valid state");
+        assert!(err.contains("Invalid UPower battery state"));
+    }
+}
