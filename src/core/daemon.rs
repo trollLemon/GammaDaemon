@@ -674,7 +674,12 @@ mod tests {
         let ex = smol::LocalExecutor::new();
         let (s, recv) = async_channel::unbounded::<f32>();
         let (sd, shutdown) = async_channel::bounded::<()>(1);
-        let dmn = loop_daemon(config_with_poll(3600), s.clone(), BatteryState::Unknown, 0.5);
+        let dmn = loop_daemon(
+            config_with_poll(3600),
+            s.clone(),
+            BatteryState::Unknown,
+            0.5,
+        );
 
         smol::block_on(ex.run(async {
             let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));
@@ -753,7 +758,12 @@ mod tests {
         let ex = smol::LocalExecutor::new();
         let (s, recv) = async_channel::unbounded::<f32>();
         let (sd, shutdown) = async_channel::bounded::<()>(1);
-        let dmn = loop_daemon(config_with_poll(3600), s.clone(), BatteryState::Unknown, 0.5);
+        let dmn = loop_daemon(
+            config_with_poll(3600),
+            s.clone(),
+            BatteryState::Unknown,
+            0.5,
+        );
 
         smol::block_on(ex.run(async {
             let task = ex.spawn(update_loop(dmn, recording_update_fn, recv, shutdown));

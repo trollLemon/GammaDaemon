@@ -177,7 +177,9 @@ mod tests {
 
     #[test]
     fn battery_state_from_owned_value_wrong_type_errors() {
-        let value: OwnedValue = Value::from("not a number").try_into().expect("owned str value");
+        let value: OwnedValue = Value::from("not a number")
+            .try_into()
+            .expect("owned str value");
         let err = BatteryState::try_from(value).expect_err("strings are not battery states");
         assert!(err.contains("Expected u32 battery state"));
     }
